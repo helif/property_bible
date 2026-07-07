@@ -1,6 +1,11 @@
 (() => {
   const form = document.getElementById('login-form');
   const errorEl = document.getElementById('login-error');
+  const versionEl = document.getElementById('login-version');
+
+  api('/api/version')
+    .then((res) => { if (versionEl) versionEl.textContent = `v${res.version}`; })
+    .catch(() => { /* version display is non-essential */ });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

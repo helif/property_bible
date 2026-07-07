@@ -596,6 +596,12 @@ body {
   font-size: 13px;
   margin-bottom: 16px;
 }
+.login-version {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 /* Toast */
 .toast {

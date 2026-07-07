@@ -213,7 +213,7 @@ function getValidSession(token) {
   return row;
 }
 
-const PUBLIC_PATHS = new Set(['/login.html', '/login.js', '/common.js', '/style.css', '/api/login', '/api/logout']);
+const PUBLIC_PATHS = new Set(['/login.html', '/login.js', '/common.js', '/style.css', '/api/login', '/api/logout', '/api/version']);
 
 function sessionAuth(req, res, next) {
   if (PUBLIC_PATHS.has(req.path)) return next();
@@ -272,6 +272,10 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
   res.json({ username: req.username, role: req.userRole, canManageUsers: req.canManageUsers });
+});
+
+app.get('/api/version', (req, res) => {
+  res.json({ version: require('./package.json').version });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));

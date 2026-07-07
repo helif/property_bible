@@ -59,6 +59,13 @@
     return `<div class="df-item"><dt>${label}</dt><dd>${value ? escapeHtml(value) : '<span class="df-empty">&mdash;</span>'}</dd></div>`;
   }
 
+  function facilitiesRow(facilities) {
+    const tags = (facilities || []).length
+      ? facilities.map((f) => `<span class="facility-tag">${escapeHtml(f)}</span>`).join('')
+      : '<span class="df-empty">&mdash;</span>';
+    return `<div class="df-item df-item-full"><dt>Facilities</dt><dd>${tags}</dd></div>`;
+  }
+
   function renderDetail() {
     const p = findSelected();
     syncMobileView(!!p);
@@ -79,6 +86,9 @@
         detailItem('Strata Levy', formatMoney(s.strata_levy)),
         detailItem('Water', formatMoney(s.water)),
         detailItem('Council Fees', formatMoney(s.council_fees)),
+        detailItem('Strata Plan No', s.strata_plan_no),
+        detailItem('Selling Agent', s.selling_agent),
+        detailItem('Aspect', s.aspect),
       ].join('');
       return `
         <div class="sale-card">
@@ -112,6 +122,10 @@
           ${fieldRow('Built By', p.built_by)}
           ${fieldRow('Managed By', p.managed_by)}
           ${fieldRow('Manager', p.manager)}
+          ${fieldRow("Manager's Email", p.manager_email)}
+          ${fieldRow("Manager's Phone", p.manager_phone)}
+          ${fieldRow('Number of Units', p.number_of_units)}
+          ${facilitiesRow(p.facilities)}
         </dl>
 
         <div class="section-title">Sales History</div>

@@ -11,6 +11,7 @@ db.exec('PRAGMA foreign_keys = ON');
 
 const PROPERTY_TYPES = ['Apartment Complex', 'House and Land', 'Townhouse/Villa', 'Commercial', 'Vacant'];
 const LAYOUT_OPTIONS = ['1-1-0', '1-1-1', '2-1-0', '2-2-0', '2-2-1', '2-2-2', '3-1-1', '3-2-1', '3-2-2', '3-3-2', 'Other'];
+const FACILITY_OPTIONS = ['Pool', 'BBQ Area', 'Gym', 'Garden', 'Picnic Area', 'Reception', 'Lounge'];
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS properties (
@@ -23,6 +24,10 @@ db.exec(`
     built_by TEXT,
     managed_by TEXT,
     manager TEXT,
+    manager_email TEXT,
+    manager_phone TEXT,
+    number_of_units INTEGER,
+    facilities TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -40,6 +45,9 @@ db.exec(`
     water REAL,
     council_fees REAL,
     is_tenanted INTEGER NOT NULL DEFAULT 0,
+    strata_plan_no TEXT,
+    selling_agent TEXT,
+    aspect TEXT,
     notes TEXT
   );
 
@@ -97,6 +105,16 @@ if (!columns.includes('name')) {
   }
 }
 
+// Migrate in manager contact details, unit count, and facilities
+if (!columns.includes('manager_email')) {
+  db.exec(`
+    ALTER TABLE properties ADD COLUMN manager_email TEXT;
+    ALTER TABLE properties ADD COLUMN manager_phone TEXT;
+    ALTER TABLE properties ADD COLUMN number_of_units INTEGER;
+    ALTER TABLE properties ADD COLUMN facilities TEXT;
+  `);
+}
+
 // Migrate older sales_history schemas (add unit_number/layout/strata_levy/water/council_fees/is_tenanted)
 const salesColumns = db.prepare("PRAGMA table_info(sales_history)").all().map((c) => c.name);
 if (!salesColumns.includes('layout')) {
@@ -107,6 +125,14 @@ if (!salesColumns.includes('layout')) {
     ALTER TABLE sales_history ADD COLUMN water REAL;
     ALTER TABLE sales_history ADD COLUMN council_fees REAL;
     ALTER TABLE sales_history ADD COLUMN is_tenanted INTEGER NOT NULL DEFAULT 0;
+  `);
+}
+// Migrate in strata plan number, selling agent, and aspect
+if (!salesColumns.includes('strata_plan_no')) {
+  db.exec(`
+    ALTER TABLE sales_history ADD COLUMN strata_plan_no TEXT;
+    ALTER TABLE sales_history ADD COLUMN selling_agent TEXT;
+    ALTER TABLE sales_history ADD COLUMN aspect TEXT;
   `);
 }
 
@@ -251,25 +277,38 @@ function getSalesFor(propertyId) {
   ).all(propertyId);
 }
 
+function parseFacilities(json) {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function serializeProperty(row) {
+  return { ...row, facilities: parseFacilities(row.facilities), sales_history: getSalesFor(row.id) };
+}
+
 function getPropertyWithSales(id) {
   const property = db.prepare('SELECT * FROM properties WHERE id = ?').get(id);
   if (!property) return null;
-  return { ...property, sales_history: getSalesFor(id) };
+  return serializeProperty(property);
 }
 
 // List all properties (with sales history)
 app.get('/api/properties', (req, res) => {
   const properties = db.prepare('SELECT * FROM properties ORDER BY updated_at DESC').all();
-  const withSales = properties.map((p) => ({ ...p, sales_history: getSalesFor(p.id) }));
-  res.json(withSales);
+  res.json(properties.map(serializeProperty));
 });
 
-// Keyword search across name, suburb, type, address, built by, managed by, manager, and sales parties
+// Keyword search across name, suburb, type, address, built by, managed by, manager, manager contact, facilities, and sales parties
 app.get('/api/search', (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) {
     const properties = db.prepare('SELECT * FROM properties ORDER BY updated_at DESC').all();
-    return res.json(properties.map((p) => ({ ...p, sales_history: getSalesFor(p.id) })));
+    return res.json(properties.map(serializeProperty));
   }
   const like = `%${q}%`;
   const rows = db.prepare(`
@@ -277,10 +316,12 @@ app.get('/api/search', (req, res) => {
     LEFT JOIN sales_history s ON s.property_id = p.id
     WHERE p.name LIKE ? OR p.suburb LIKE ? OR p.type LIKE ? OR p.address LIKE ?
        OR p.year_built LIKE ? OR p.built_by LIKE ? OR p.managed_by LIKE ? OR p.manager LIKE ?
+       OR p.manager_email LIKE ? OR p.manager_phone LIKE ? OR p.facilities LIKE ?
        OR s.buyer LIKE ? OR s.seller LIKE ? OR s.unit_number LIKE ?
+       OR s.strata_plan_no LIKE ? OR s.selling_agent LIKE ? OR s.aspect LIKE ?
     ORDER BY p.updated_at DESC
-  `).all(like, like, like, like, like, like, like, like, like, like, like);
-  res.json(rows.map((p) => ({ ...p, sales_history: getSalesFor(p.id) })));
+  `).all(like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like);
+  res.json(rows.map(serializeProperty));
 });
 
 // Get single property
@@ -290,13 +331,35 @@ app.get('/api/properties/:id', (req, res) => {
   res.json(property);
 });
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function validatePropertyBody(body) {
-  const { name, suburb, type, address, year_built, built_by, managed_by, manager } = body;
+  const {
+    name, suburb, type, address, year_built, built_by, managed_by, manager,
+    manager_email, manager_phone, number_of_units, facilities,
+  } = body;
   if (!address || !address.trim()) {
     return { error: 'Address is required' };
   }
   if (type && !PROPERTY_TYPES.includes(type)) {
     return { error: `Type must be one of: ${PROPERTY_TYPES.join(', ')}` };
+  }
+  if (manager_email && manager_email.trim() && !EMAIL_PATTERN.test(manager_email.trim())) {
+    return { error: 'Manager email is not a valid email address' };
+  }
+  let unitsValue = null;
+  if (number_of_units !== undefined && number_of_units !== null && number_of_units !== '') {
+    const parsed = Number(number_of_units);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return { error: 'Number of units must be a non-negative whole number' };
+    }
+    unitsValue = parsed;
+  }
+  const facilitiesList = Array.isArray(facilities) ? facilities : [];
+  for (const f of facilitiesList) {
+    if (!FACILITY_OPTIONS.includes(f)) {
+      return { error: `Facilities must be one of: ${FACILITY_OPTIONS.join(', ')}` };
+    }
   }
   return {
     values: {
@@ -308,6 +371,10 @@ function validatePropertyBody(body) {
       built_by: built_by?.trim() || null,
       managed_by: managed_by?.trim() || null,
       manager: manager?.trim() || null,
+      manager_email: manager_email?.trim() || null,
+      manager_phone: manager_phone?.trim() || null,
+      number_of_units: unitsValue,
+      facilities: facilitiesList.length ? JSON.stringify(facilitiesList) : null,
     },
   };
 }
@@ -317,9 +384,16 @@ app.post('/api/properties', requireAdmin, (req, res) => {
   const { error, values } = validatePropertyBody(req.body);
   if (error) return res.status(400).json({ error });
   const result = db.prepare(`
-    INSERT INTO properties (name, suburb, type, address, year_built, built_by, managed_by, manager)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(values.name, values.suburb, values.type, values.address, values.year_built, values.built_by, values.managed_by, values.manager);
+    INSERT INTO properties (
+      name, suburb, type, address, year_built, built_by, managed_by, manager,
+      manager_email, manager_phone, number_of_units, facilities
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
+    values.managed_by, values.manager, values.manager_email, values.manager_phone,
+    values.number_of_units, values.facilities
+  );
   res.status(201).json(getPropertyWithSales(result.lastInsertRowid));
 });
 
@@ -331,9 +405,14 @@ app.put('/api/properties/:id', requireAdmin, (req, res) => {
   if (error) return res.status(400).json({ error });
   db.prepare(`
     UPDATE properties
-    SET name = ?, suburb = ?, type = ?, address = ?, year_built = ?, built_by = ?, managed_by = ?, manager = ?, updated_at = datetime('now')
+    SET name = ?, suburb = ?, type = ?, address = ?, year_built = ?, built_by = ?, managed_by = ?, manager = ?,
+        manager_email = ?, manager_phone = ?, number_of_units = ?, facilities = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(values.name, values.suburb, values.type, values.address, values.year_built, values.built_by, values.managed_by, values.manager, req.params.id);
+  `).run(
+    values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
+    values.managed_by, values.manager, values.manager_email, values.manager_phone,
+    values.number_of_units, values.facilities, req.params.id
+  );
   res.json(getPropertyWithSales(req.params.id));
 });
 
@@ -350,7 +429,8 @@ app.post('/api/properties/:id/sales', requireAdmin, (req, res) => {
   if (!property) return res.status(404).json({ error: 'Property not found' });
   const {
     sale_date, sale_price, unit_number, layout, buyer, seller,
-    strata_levy, water, council_fees, is_tenanted, notes,
+    strata_levy, water, council_fees, is_tenanted,
+    strata_plan_no, selling_agent, aspect, notes,
   } = req.body;
   if (layout && !LAYOUT_OPTIONS.includes(layout)) {
     return res.status(400).json({ error: `Layout must be one of: ${LAYOUT_OPTIONS.join(', ')}` });
@@ -358,13 +438,13 @@ app.post('/api/properties/:id/sales', requireAdmin, (req, res) => {
   const result = db.prepare(`
     INSERT INTO sales_history (
       property_id, sale_date, sale_price, unit_number, layout, buyer, seller,
-      strata_levy, water, council_fees, is_tenanted, notes
+      strata_levy, water, council_fees, is_tenanted, strata_plan_no, selling_agent, aspect, notes
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.params.id, sale_date || null, sale_price || null, unit_number || null, layout || null,
     buyer || null, seller || null, strata_levy || null, water || null, council_fees || null,
-    is_tenanted ? 1 : 0, notes || null
+    is_tenanted ? 1 : 0, strata_plan_no || null, selling_agent || null, aspect || null, notes || null
   );
   db.prepare(`UPDATE properties SET updated_at = datetime('now') WHERE id = ?`).run(req.params.id);
   res.status(201).json(getPropertyWithSales(req.params.id));

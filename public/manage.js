@@ -132,6 +132,29 @@
           <label for="f-manager">Manager</label>
           <input id="f-manager" name="manager" value="${escapeHtml(p.manager)}" placeholder="Manager contact name">
         </div>
+        <div class="field">
+          <label for="f-manager-email">Manager's Email</label>
+          <input id="f-manager-email" name="manager_email" type="email" value="${escapeHtml(p.manager_email)}" placeholder="manager@example.com">
+        </div>
+        <div class="field">
+          <label for="f-manager-phone">Manager's Phone</label>
+          <input id="f-manager-phone" name="manager_phone" value="${escapeHtml(p.manager_phone)}" placeholder="Phone number">
+        </div>
+        <div class="field">
+          <label for="f-number-of-units">Number of Units</label>
+          <input id="f-number-of-units" name="number_of_units" type="number" min="0" step="1" value="${p.number_of_units ?? ''}" placeholder="e.g. 24">
+        </div>
+        <div class="field full">
+          <label>Facilities</label>
+          <div class="facility-options">
+            ${FACILITY_OPTIONS.map((f) => `
+              <label class="facility-option">
+                <input type="checkbox" name="facilities" value="${f}" ${(p.facilities || []).includes(f) ? 'checked' : ''}>
+                ${f}
+              </label>
+            `).join('')}
+          </div>
+        </div>
       </div>
     `;
   }
@@ -147,6 +170,10 @@
       built_by: fd.get('built_by')?.trim() || '',
       managed_by: fd.get('managed_by')?.trim() || '',
       manager: fd.get('manager')?.trim() || '',
+      manager_email: fd.get('manager_email')?.trim() || '',
+      manager_phone: fd.get('manager_phone')?.trim() || '',
+      number_of_units: fd.get('number_of_units') || '',
+      facilities: fd.getAll('facilities'),
     };
   }
 
@@ -171,6 +198,9 @@
         detailItem('Strata Levy', formatMoney(s.strata_levy)),
         detailItem('Water', formatMoney(s.water)),
         detailItem('Council Fees', formatMoney(s.council_fees)),
+        detailItem('Strata Plan No', s.strata_plan_no),
+        detailItem('Selling Agent', s.selling_agent),
+        detailItem('Aspect', s.aspect),
       ].join('');
       return `
         <div class="sale-card" data-sale-id="${s.id}">
@@ -227,6 +257,9 @@
             <div class="field"><label>Strata Levy</label><input type="number" name="strata_levy" step="0.01" placeholder="0.00"></div>
             <div class="field"><label>Water</label><input type="number" name="water" step="0.01" placeholder="0.00"></div>
             <div class="field"><label>Council Fees</label><input type="number" name="council_fees" step="0.01" placeholder="0.00"></div>
+            <div class="field"><label>Strata Plan No</label><input type="text" name="strata_plan_no" placeholder="e.g. SP12345"></div>
+            <div class="field"><label>Selling Agent</label><input type="text" name="selling_agent"></div>
+            <div class="field"><label>Aspect</label><input type="text" name="aspect" placeholder="e.g. North-facing"></div>
             <div class="field full"><label>Notes</label><input type="text" name="notes"></div>
             <div class="field full checkbox-field">
               <label><input type="checkbox" name="is_tenanted"> Is Tenanted</label>
@@ -280,6 +313,9 @@
         water: fd.get('water') ? Number(fd.get('water')) : null,
         council_fees: fd.get('council_fees') ? Number(fd.get('council_fees')) : null,
         is_tenanted: fd.get('is_tenanted') === 'on',
+        strata_plan_no: fd.get('strata_plan_no')?.trim() || null,
+        selling_agent: fd.get('selling_agent')?.trim() || null,
+        aspect: fd.get('aspect')?.trim() || null,
         notes: fd.get('notes')?.trim() || null,
       };
       try {

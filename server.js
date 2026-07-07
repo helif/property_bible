@@ -155,17 +155,18 @@ function generatePassword() {
   return crypto.randomBytes(9).toString('base64url');
 }
 
+const DEFAULT_SEED_PASSWORD = 'password';
+
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
 if (userCount === 0) {
-  const adminPassword = generatePassword();
-  const cathyPassword = generatePassword();
-  createUser('admin', adminPassword, 'admin', true);
-  createUser('cathy', cathyPassword, 'admin', false);
+  createUser('admin', DEFAULT_SEED_PASSWORD, 'admin', true);
+  createUser('cathy', DEFAULT_SEED_PASSWORD, 'admin', false);
   console.log('='.repeat(64));
-  console.log('Created initial user accounts (passwords shown once):');
-  console.log(`  admin : ${adminPassword}`);
-  console.log(`  cathy : ${cathyPassword}`);
-  console.log('Store these somewhere safe now. They are hashed in storage and cannot be retrieved again.');
+  console.log('Created initial user accounts with the default password:');
+  console.log(`  admin : ${DEFAULT_SEED_PASSWORD}`);
+  console.log(`  cathy : ${DEFAULT_SEED_PASSWORD}`);
+  console.log('SECURITY WARNING: this is a well-known fixed password. Change it via');
+  console.log('the Admin module immediately, especially on any public deployment.');
   console.log('='.repeat(64));
 }
 

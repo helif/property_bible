@@ -378,6 +378,39 @@ body {
   font-size: 14px;
 }
 .df-empty { color: var(--text-muted); }
+.df-item-full { grid-column: 1 / -1; }
+
+.facility-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--gold-tint);
+  color: var(--gold-hover);
+  margin: 0 6px 6px 0;
+}
+
+.facility-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+.field .facility-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 0;
+}
+.facility-option input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--primary);
+}
 
 .field label {
   display: block;

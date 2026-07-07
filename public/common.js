@@ -1,5 +1,6 @@
 const PROPERTY_TYPES = ['Apartment Complex', 'House and Land', 'Townhouse/Villa', 'Commercial', 'Vacant'];
 const LAYOUT_OPTIONS = ['1-1-0', '1-1-1', '2-1-0', '2-2-0', '2-2-1', '2-2-2', '3-1-1', '3-2-1', '3-2-2', '3-3-2', 'Other'];
+const FACILITY_OPTIONS = ['Pool', 'BBQ Area', 'Gym', 'Garden', 'Picnic Area', 'Reception', 'Lounge'];
 const TYPE_SLUGS = {
   'Apartment Complex': 'apartment',
   'House and Land': 'house',
@@ -47,7 +48,7 @@ function formatMoney(n) {
   if (n === null || n === undefined || n === '') return '';
   const num = Number(n);
   if (Number.isNaN(num)) return '';
-  return num.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return num.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 });
 }
 
 let _toastTimer = null;

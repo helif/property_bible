@@ -59,6 +59,13 @@
     return `<div class="df-item"><dt>${label}</dt><dd>${value ? escapeHtml(value) : '<span class="df-empty">&mdash;</span>'}</dd></div>`;
   }
 
+  function emailRow(label, value) {
+    const dd = value
+      ? `<a href="mailto:${escapeHtml(value)}">${escapeHtml(value)}</a>`
+      : '<span class="df-empty">&mdash;</span>';
+    return `<div class="df-item"><dt>${label}</dt><dd>${dd}</dd></div>`;
+  }
+
   function facilitiesRow(facilities) {
     const tags = (facilities || []).length
       ? facilities.map((f) => `<span class="facility-tag">${escapeHtml(f)}</span>`).join('')
@@ -122,7 +129,7 @@
           ${fieldRow('Built By', p.built_by)}
           ${fieldRow('Managed By', p.managed_by)}
           ${fieldRow('Manager', p.manager)}
-          ${fieldRow("Manager's Email", p.manager_email)}
+          ${emailRow("Manager's Email", p.manager_email)}
           ${fieldRow("Manager's Phone", p.manager_phone)}
           ${fieldRow('Number of Units', p.number_of_units)}
           ${facilitiesRow(p.facilities)}

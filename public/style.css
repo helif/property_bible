@@ -377,6 +377,11 @@ body {
   margin: 0;
   font-size: 14px;
 }
+.df-item dd a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.df-item dd a:hover { text-decoration: underline; }
 .df-empty { color: var(--text-muted); }
 .df-item-full { grid-column: 1 / -1; }
 

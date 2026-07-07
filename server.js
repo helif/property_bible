@@ -3,8 +3,12 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const express = require('express');
 
-const DB_PATH = path.join(__dirname, 'data', 'properties.db');
-require('node:fs').mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+// DATA_DIR lets a persistent disk (e.g. a Render Disk mounted outside the
+// ephemeral build directory) be used in production; defaults to a local
+// folder for development, where __dirname is stable across runs.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DB_PATH = path.join(DATA_DIR, 'properties.db');
+require('node:fs').mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA foreign_keys = ON');

@@ -1,0 +1,13 @@
+{
+  "name": "property-manager",
+  "version": "1.0.0",
+  "description": "Property information manager with search",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

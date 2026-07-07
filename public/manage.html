@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f1b33">
+<title>Cathy's Property Bible &middot; Manage</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%A0%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">&#8962;</span>
+        <span class="brand-name">Cathy's Property Bible</span>
+      </div>
+      <nav class="page-nav">
+        <a class="nav-link" href="index.html">View</a>
+        <a class="nav-link active" href="manage.html">Manage</a>
+        <a class="nav-link" href="admin.html">Admin</a>
+      </nav>
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input id="search-input" type="text" placeholder="Search by address, suburb, manager, buyer/seller..." autocomplete="off">
+        <button id="clear-search" class="clear-btn" title="Clear search" hidden>&times;</button>
+      </div>
+      <button id="new-property-btn" class="btn btn-primary">+ New Property</button>
+      <div class="user-badge">
+        <span id="current-username"></span>
+        <button type="button" id="logout-btn" class="btn btn-secondary">Log out</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="list-pane">
+        <div id="result-count" class="result-count"></div>
+        <div id="property-list" class="property-list"></div>
+        <div id="empty-list" class="empty-state" hidden>
+          <p>No properties found.</p>
+        </div>
+      </section>
+
+      <section class="detail-pane" id="detail-pane">
+        <div id="no-selection" class="empty-state">
+          <p>Select a property, or create a new one, to edit details.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <template id="property-card-template">
+    <button class="property-card">
+      <div class="pc-address"></div>
+      <div class="pc-meta">
+        <span class="pc-suburb"></span>
+        <span class="pc-type"></span>
+      </div>
+    </button>
+  </template>
+
+  <script src="common.js"></script>
+  <script src="manage.js"></script>
+</body>
+</html>

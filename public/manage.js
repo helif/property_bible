@@ -30,8 +30,10 @@
 
     for (const p of items) {
       const node = cardTemplate.content.firstElementChild.cloneNode(true);
+      const unit = p.type === 'Apartment' ? `Unit ${p.unit_number} ` : '';
+
       node.dataset.type = typeSlug(p.type);
-      node.querySelector('.pc-address').textContent = p.name || p.address;
+      node.querySelector('.pc-address').textContent = unit + p.address;
       node.querySelector('.pc-suburb').textContent = p.suburb || '';
       node.querySelector('.pc-type').textContent = p.type || '';
       node.classList.toggle('active', p.id === state.selectedId);
@@ -98,10 +100,6 @@
     return `
       <div class="form-grid">
         <div class="field">
-          <label for="f-name">Name</label>
-          <input id="f-name" name="name" value="${escapeHtml(p.name)}" placeholder="Property name">
-        </div>
-        <div class="field">
           <label for="f-type">Type</label>
           <select id="f-type" name="type">
             <option value="">Select type...</option>
@@ -109,40 +107,63 @@
           </select>
         </div>
         <div class="field">
-          <label for="f-address">Address</label>
+          <label for="f-address">Street Address</label>
           <input id="f-address" name="address" required value="${escapeHtml(p.address)}" placeholder="123 Main St, Springfield">
+        </div>
+        <div class="field">
+          <label for="f-unit-number">Unit Number</label>
+          <input id="f-unit-number" name="unit_number" value="${escapeHtml(p.unit_number)}" placeholder="e.g. 12">
         </div>
         <div class="field">
           <label for="f-suburb">Suburb</label>
           <input id="f-suburb" name="suburb" value="${escapeHtml(p.suburb)}" placeholder="Suburb">
         </div>
         <div class="field">
+          <label for="f-layout">Layout</label>
+          <select id="f-layout" name="layout">
+            <option value="">Select layout...</option>
+            ${LAYOUT_OPTIONS.map((l) => `<option value="${l}" ${p.layout === l ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-aspect">Aspect</label>
+          <input id="f-aspect" name="aspect" value="${escapeHtml(p.aspect)}" placeholder="e.g. North-facing">
+        </div>
+        <div class="field">
           <label for="f-year-built">Year Built</label>
           <input id="f-year-built" name="year_built" value="${escapeHtml(p.year_built)}" placeholder="e.g. 1998">
         </div>
         <div class="field">
-          <label for="f-built-by">Built By</label>
+          <label for="f-built-by">Builder/Developer</label>
           <input id="f-built-by" name="built_by" value="${escapeHtml(p.built_by)}" placeholder="Builder/developer">
         </div>
         <div class="field">
-          <label for="f-managed-by">Managed By</label>
+          <label for="f-name">Property Name</label>
+          <input id="f-name" name="name" value="${escapeHtml(p.name)}" placeholder="Property name">
+        </div>
+        <div class="field">
+          <label for="f-managed-by">Strata Management Company</label>
           <input id="f-managed-by" name="managed_by" value="${escapeHtml(p.managed_by)}" placeholder="Managing company">
         </div>
         <div class="field">
-          <label for="f-manager">Manager</label>
+          <label for="f-manager">Strata Manager</label>
           <input id="f-manager" name="manager" value="${escapeHtml(p.manager)}" placeholder="Manager contact name">
         </div>
         <div class="field">
-          <label for="f-manager-email">Manager's Email</label>
+          <label for="f-manager-email">Strata Manager's Email</label>
           <input id="f-manager-email" name="manager_email" type="email" value="${escapeHtml(p.manager_email)}" placeholder="manager@example.com">
         </div>
         <div class="field">
-          <label for="f-manager-phone">Manager's Phone</label>
+          <label for="f-manager-phone">Strata Manager's Phone</label>
           <input id="f-manager-phone" name="manager_phone" value="${escapeHtml(p.manager_phone)}" placeholder="Phone number">
         </div>
         <div class="field">
-          <label for="f-number-of-units">Number of Units</label>
+          <label for="f-number-of-units">Number of Strata Lots</label>
           <input id="f-number-of-units" name="number_of_units" type="number" min="0" step="1" value="${p.number_of_units ?? ''}" placeholder="e.g. 24">
+        </div>
+        <div class="field">
+          <label for="f-strata-plan-no">Strata Plan No</label>
+          <input id="f-strata-plan-no" name="strata_plan_no" value="${escapeHtml(p.strata_plan_no)}" placeholder="e.g. SP12345">
         </div>
         <div class="field full">
           <label>Facilities</label>
@@ -173,6 +194,10 @@
       manager_email: fd.get('manager_email')?.trim() || '',
       manager_phone: fd.get('manager_phone')?.trim() || '',
       number_of_units: fd.get('number_of_units') || '',
+      unit_number: fd.get('unit_number')?.trim() || '',
+      layout: fd.get('layout') || '',
+      aspect: fd.get('aspect')?.trim() || '',
+      strata_plan_no: fd.get('strata_plan_no')?.trim() || '',
       facilities: fd.getAll('facilities'),
     };
   }
@@ -191,16 +216,12 @@
         ? `<div class="sc-item"><span class="sc-label">${label}</span><span class="sc-value">${escapeHtml(value)}</span></div>`
         : '';
       const details = [
-        detailItem('Unit', s.unit_number),
-        detailItem('Layout', s.layout),
         detailItem('Buyer', s.buyer),
         detailItem('Seller', s.seller),
         detailItem('Strata Levy', formatMoney(s.strata_levy)),
         detailItem('Water', formatMoney(s.water)),
         detailItem('Council Fees', formatMoney(s.council_fees)),
-        detailItem('Strata Plan No', s.strata_plan_no),
         detailItem('Selling Agent', s.selling_agent),
-        detailItem('Aspect', s.aspect),
       ].join('');
       return `
         <div class="sale-card" data-sale-id="${s.id}">
@@ -223,7 +244,7 @@
         <div class="detail-header">
           <button type="button" class="mobile-back-btn" id="back-to-list" aria-label="Back to list">&larr;</button>
           <div class="detail-title-group">
-            <h2>${escapeHtml(p.name || p.address)}</h2>
+            <h2>${escapeHtml((p.unit_number ? `Unit ${p.unit_number} ` : '') + p.address)}</h2>
             ${p.type ? `<span class="type-badge" data-type="${typeSlug(p.type)}">${escapeHtml(p.type)}</span>` : ''}
           </div>
           <div class="detail-actions">
@@ -242,14 +263,6 @@
 
         <form id="add-sale-form" class="add-sale-form">
           <div class="form-grid">
-            <div class="field"><label>Unit Number</label><input type="text" name="unit_number" placeholder="e.g. 12"></div>
-            <div class="field">
-              <label>Layout</label>
-              <select name="layout">
-                <option value="">Select layout...</option>
-                ${LAYOUT_OPTIONS.map((l) => `<option value="${l}">${l}</option>`).join('')}
-              </select>
-            </div>
             <div class="field"><label>Sale Date</label><input type="date" name="sale_date"></div>
             <div class="field"><label>Sale Price</label><input type="number" name="sale_price" step="0.01" placeholder="0.00"></div>
             <div class="field"><label>Buyer</label><input type="text" name="buyer"></div>
@@ -257,9 +270,7 @@
             <div class="field"><label>Strata Levy</label><input type="number" name="strata_levy" step="0.01" placeholder="0.00"></div>
             <div class="field"><label>Water</label><input type="number" name="water" step="0.01" placeholder="0.00"></div>
             <div class="field"><label>Council Fees</label><input type="number" name="council_fees" step="0.01" placeholder="0.00"></div>
-            <div class="field"><label>Strata Plan No</label><input type="text" name="strata_plan_no" placeholder="e.g. SP12345"></div>
             <div class="field"><label>Selling Agent</label><input type="text" name="selling_agent"></div>
-            <div class="field"><label>Aspect</label><input type="text" name="aspect" placeholder="e.g. North-facing"></div>
             <div class="field full"><label>Notes</label><input type="text" name="notes"></div>
             <div class="field full checkbox-field">
               <label><input type="checkbox" name="is_tenanted"> Is Tenanted</label>
@@ -305,17 +316,13 @@
       const payload = {
         sale_date: fd.get('sale_date') || null,
         sale_price: fd.get('sale_price') ? Number(fd.get('sale_price')) : null,
-        unit_number: fd.get('unit_number')?.trim() || null,
-        layout: fd.get('layout') || null,
         buyer: fd.get('buyer')?.trim() || null,
         seller: fd.get('seller')?.trim() || null,
         strata_levy: fd.get('strata_levy') ? Number(fd.get('strata_levy')) : null,
         water: fd.get('water') ? Number(fd.get('water')) : null,
         council_fees: fd.get('council_fees') ? Number(fd.get('council_fees')) : null,
         is_tenanted: fd.get('is_tenanted') === 'on',
-        strata_plan_no: fd.get('strata_plan_no')?.trim() || null,
         selling_agent: fd.get('selling_agent')?.trim() || null,
-        aspect: fd.get('aspect')?.trim() || null,
         notes: fd.get('notes')?.trim() || null,
       };
       try {

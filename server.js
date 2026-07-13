@@ -13,9 +13,9 @@ require('node:fs').mkdirSync(DATA_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA foreign_keys = ON');
 
-const PROPERTY_TYPES = ['Apartment Complex', 'House and Land', 'Townhouse/Villa', 'Commercial', 'Vacant'];
+const PROPERTY_TYPES = ['Apartment', 'House', 'Townhouse/Villa', 'Commercial', 'Vacant Land', 'Other'];
+const FACILITY_OPTIONS = ['Indoor Pool', 'Spa', 'BBQ Area', 'Gym', 'Sauna', 'Gardens', 'Picnic Area', 'Outdoor Pool/Spa', 'Reception', 'Terrace', 'Lounge', 'Function Room', 'Other'];
 const LAYOUT_OPTIONS = ['1-1-0', '1-1-1', '2-1-0', '2-2-0', '2-2-1', '2-2-2', '3-1-1', '3-2-1', '3-2-2', '3-3-2', 'Other'];
-const FACILITY_OPTIONS = ['Pool', 'BBQ Area', 'Gym', 'Garden', 'Picnic Area', 'Reception', 'Lounge'];
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS properties (
@@ -31,6 +31,10 @@ db.exec(`
     manager_email TEXT,
     manager_phone TEXT,
     number_of_units INTEGER,
+    unit_number TEXT,
+    layout TEXT,
+    aspect TEXT,
+    strata_plan_no TEXT,
     facilities TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -41,17 +45,13 @@ db.exec(`
     property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
     sale_date TEXT,
     sale_price REAL,
-    unit_number TEXT,
-    layout TEXT,
     buyer TEXT,
     seller TEXT,
     strata_levy REAL,
     water REAL,
     council_fees REAL,
     is_tenanted INTEGER NOT NULL DEFAULT 0,
-    strata_plan_no TEXT,
     selling_agent TEXT,
-    aspect TEXT,
     notes TEXT
   );
 
@@ -119,25 +119,61 @@ if (!columns.includes('manager_email')) {
   `);
 }
 
-// Migrate older sales_history schemas (add unit_number/layout/strata_levy/water/council_fees/is_tenanted)
+// Migrate older sales_history schemas (add strata_levy/water/council_fees/is_tenanted)
 const salesColumns = db.prepare("PRAGMA table_info(sales_history)").all().map((c) => c.name);
-if (!salesColumns.includes('layout')) {
+if (!salesColumns.includes('strata_levy')) {
   db.exec(`
-    ALTER TABLE sales_history ADD COLUMN unit_number TEXT;
-    ALTER TABLE sales_history ADD COLUMN layout TEXT;
     ALTER TABLE sales_history ADD COLUMN strata_levy REAL;
     ALTER TABLE sales_history ADD COLUMN water REAL;
     ALTER TABLE sales_history ADD COLUMN council_fees REAL;
     ALTER TABLE sales_history ADD COLUMN is_tenanted INTEGER NOT NULL DEFAULT 0;
   `);
 }
-// Migrate in strata plan number, selling agent, and aspect
-if (!salesColumns.includes('strata_plan_no')) {
+// Migrate in selling agent
+if (!salesColumns.includes('selling_agent')) {
+  db.exec('ALTER TABLE sales_history ADD COLUMN selling_agent TEXT');
+}
+
+// Move unit number, layout, and aspect from sales_history to properties — these describe
+// the unit itself and don't change between re-sales of the same unit.
+if (!columns.includes('unit_number')) {
   db.exec(`
-    ALTER TABLE sales_history ADD COLUMN strata_plan_no TEXT;
-    ALTER TABLE sales_history ADD COLUMN selling_agent TEXT;
-    ALTER TABLE sales_history ADD COLUMN aspect TEXT;
+    ALTER TABLE properties ADD COLUMN unit_number TEXT;
+    ALTER TABLE properties ADD COLUMN layout TEXT;
+    ALTER TABLE properties ADD COLUMN aspect TEXT;
   `);
+  if (salesColumns.includes('unit_number')) {
+    db.exec(`
+      UPDATE properties SET
+        unit_number = (SELECT unit_number FROM sales_history WHERE property_id = properties.id AND unit_number IS NOT NULL ORDER BY sale_date DESC, id DESC LIMIT 1),
+        layout = (SELECT layout FROM sales_history WHERE property_id = properties.id AND layout IS NOT NULL ORDER BY sale_date DESC, id DESC LIMIT 1),
+        aspect = (SELECT aspect FROM sales_history WHERE property_id = properties.id AND aspect IS NOT NULL ORDER BY sale_date DESC, id DESC LIMIT 1)
+    `);
+  }
+}
+
+// Move strata plan number from sales_history to properties — the strata plan doesn't
+// change between re-sales of the same unit.
+if (!columns.includes('strata_plan_no')) {
+  db.exec('ALTER TABLE properties ADD COLUMN strata_plan_no TEXT');
+  if (salesColumns.includes('strata_plan_no')) {
+    db.exec(`
+      UPDATE properties SET
+        strata_plan_no = (SELECT strata_plan_no FROM sales_history WHERE property_id = properties.id AND strata_plan_no IS NOT NULL ORDER BY sale_date DESC, id DESC LIMIT 1)
+    `);
+  }
+}
+
+const salesColumnsNow = db.prepare("PRAGMA table_info(sales_history)").all().map((c) => c.name);
+if (salesColumnsNow.includes('unit_number')) {
+  db.exec(`
+    ALTER TABLE sales_history DROP COLUMN unit_number;
+    ALTER TABLE sales_history DROP COLUMN layout;
+    ALTER TABLE sales_history DROP COLUMN aspect;
+  `);
+}
+if (salesColumnsNow.includes('strata_plan_no')) {
+  db.exec('ALTER TABLE sales_history DROP COLUMN strata_plan_no');
 }
 
 function hashPassword(password, salt) {
@@ -312,7 +348,8 @@ app.get('/api/properties', (req, res) => {
   res.json(properties.map(serializeProperty));
 });
 
-// Keyword search across name, suburb, type, address, built by, managed by, manager, manager contact, facilities, and sales parties
+// Keyword search across name, suburb, type, address, built by, managed by, manager, manager contact,
+// unit/layout/aspect/strata plan, facilities, and sales parties
 app.get('/api/search', (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) {
@@ -325,11 +362,11 @@ app.get('/api/search', (req, res) => {
     LEFT JOIN sales_history s ON s.property_id = p.id
     WHERE p.name LIKE ? OR p.suburb LIKE ? OR p.type LIKE ? OR p.address LIKE ?
        OR p.year_built LIKE ? OR p.built_by LIKE ? OR p.managed_by LIKE ? OR p.manager LIKE ?
-       OR p.manager_email LIKE ? OR p.manager_phone LIKE ? OR p.facilities LIKE ?
-       OR s.buyer LIKE ? OR s.seller LIKE ? OR s.unit_number LIKE ?
-       OR s.strata_plan_no LIKE ? OR s.selling_agent LIKE ? OR s.aspect LIKE ?
+       OR p.manager_email LIKE ? OR p.manager_phone LIKE ? OR p.unit_number LIKE ? OR p.layout LIKE ?
+       OR p.aspect LIKE ? OR p.strata_plan_no LIKE ? OR p.facilities LIKE ?
+       OR s.buyer LIKE ? OR s.seller LIKE ? OR s.selling_agent LIKE ?
     ORDER BY p.updated_at DESC
-  `).all(like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like);
+  `).all(like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like);
   res.json(rows.map(serializeProperty));
 });
 
@@ -345,7 +382,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function validatePropertyBody(body) {
   const {
     name, suburb, type, address, year_built, built_by, managed_by, manager,
-    manager_email, manager_phone, number_of_units, facilities,
+    manager_email, manager_phone, number_of_units, unit_number, layout, aspect, strata_plan_no, facilities,
   } = body;
   if (!address || !address.trim()) {
     return { error: 'Address is required' };
@@ -355,6 +392,9 @@ function validatePropertyBody(body) {
   }
   if (manager_email && manager_email.trim() && !EMAIL_PATTERN.test(manager_email.trim())) {
     return { error: 'Manager email is not a valid email address' };
+  }
+  if (layout && !LAYOUT_OPTIONS.includes(layout)) {
+    return { error: `Layout must be one of: ${LAYOUT_OPTIONS.join(', ')}` };
   }
   let unitsValue = null;
   if (number_of_units !== undefined && number_of_units !== null && number_of_units !== '') {
@@ -383,6 +423,10 @@ function validatePropertyBody(body) {
       manager_email: manager_email?.trim() || null,
       manager_phone: manager_phone?.trim() || null,
       number_of_units: unitsValue,
+      unit_number: unit_number?.trim() || null,
+      layout: layout || null,
+      aspect: aspect?.trim() || null,
+      strata_plan_no: strata_plan_no?.trim() || null,
       facilities: facilitiesList.length ? JSON.stringify(facilitiesList) : null,
     },
   };
@@ -395,13 +439,13 @@ app.post('/api/properties', requireAdmin, (req, res) => {
   const result = db.prepare(`
     INSERT INTO properties (
       name, suburb, type, address, year_built, built_by, managed_by, manager,
-      manager_email, manager_phone, number_of_units, facilities
+      manager_email, manager_phone, number_of_units, unit_number, layout, aspect, strata_plan_no, facilities
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
     values.managed_by, values.manager, values.manager_email, values.manager_phone,
-    values.number_of_units, values.facilities
+    values.number_of_units, values.unit_number, values.layout, values.aspect, values.strata_plan_no, values.facilities
   );
   res.status(201).json(getPropertyWithSales(result.lastInsertRowid));
 });
@@ -415,12 +459,14 @@ app.put('/api/properties/:id', requireAdmin, (req, res) => {
   db.prepare(`
     UPDATE properties
     SET name = ?, suburb = ?, type = ?, address = ?, year_built = ?, built_by = ?, managed_by = ?, manager = ?,
-        manager_email = ?, manager_phone = ?, number_of_units = ?, facilities = ?, updated_at = datetime('now')
+        manager_email = ?, manager_phone = ?, number_of_units = ?, unit_number = ?, layout = ?, aspect = ?,
+        strata_plan_no = ?, facilities = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
     values.managed_by, values.manager, values.manager_email, values.manager_phone,
-    values.number_of_units, values.facilities, req.params.id
+    values.number_of_units, values.unit_number, values.layout, values.aspect, values.strata_plan_no,
+    values.facilities, req.params.id
   );
   res.json(getPropertyWithSales(req.params.id));
 });
@@ -437,23 +483,20 @@ app.post('/api/properties/:id/sales', requireAdmin, (req, res) => {
   const property = db.prepare('SELECT id FROM properties WHERE id = ?').get(req.params.id);
   if (!property) return res.status(404).json({ error: 'Property not found' });
   const {
-    sale_date, sale_price, unit_number, layout, buyer, seller,
+    sale_date, sale_price, buyer, seller,
     strata_levy, water, council_fees, is_tenanted,
-    strata_plan_no, selling_agent, aspect, notes,
+    selling_agent, notes,
   } = req.body;
-  if (layout && !LAYOUT_OPTIONS.includes(layout)) {
-    return res.status(400).json({ error: `Layout must be one of: ${LAYOUT_OPTIONS.join(', ')}` });
-  }
   const result = db.prepare(`
     INSERT INTO sales_history (
-      property_id, sale_date, sale_price, unit_number, layout, buyer, seller,
-      strata_levy, water, council_fees, is_tenanted, strata_plan_no, selling_agent, aspect, notes
+      property_id, sale_date, sale_price, buyer, seller,
+      strata_levy, water, council_fees, is_tenanted, selling_agent, notes
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    req.params.id, sale_date || null, sale_price || null, unit_number || null, layout || null,
+    req.params.id, sale_date || null, sale_price || null,
     buyer || null, seller || null, strata_levy || null, water || null, council_fees || null,
-    is_tenanted ? 1 : 0, strata_plan_no || null, selling_agent || null, aspect || null, notes || null
+    is_tenanted ? 1 : 0, selling_agent || null, notes || null
   );
   db.prepare(`UPDATE properties SET updated_at = datetime('now') WHERE id = ?`).run(req.params.id);
   res.status(201).json(getPropertyWithSales(req.params.id));

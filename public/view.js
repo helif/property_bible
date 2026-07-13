@@ -29,8 +29,9 @@
 
     for (const p of items) {
       const node = cardTemplate.content.firstElementChild.cloneNode(true);
+      const unit = p.type === 'Apartment' ? `Unit ${p.unit_number} ` : '';
       node.dataset.type = typeSlug(p.type);
-      node.querySelector('.pc-address').textContent = p.name || p.address;
+      node.querySelector('.pc-address').textContent = unit + p.address;
       node.querySelector('.pc-suburb').textContent = p.suburb || '';
       node.querySelector('.pc-type').textContent = p.type || '';
       node.classList.toggle('active', p.id === state.selectedId);
@@ -86,16 +87,12 @@
         ? `<div class="sc-item"><span class="sc-label">${label}</span><span class="sc-value">${escapeHtml(value)}</span></div>`
         : '';
       const details = [
-        detailItem('Unit', s.unit_number),
-        detailItem('Layout', s.layout),
         detailItem('Buyer', s.buyer),
         detailItem('Seller', s.seller),
         detailItem('Strata Levy', formatMoney(s.strata_levy)),
         detailItem('Water', formatMoney(s.water)),
         detailItem('Council Fees', formatMoney(s.council_fees)),
-        detailItem('Strata Plan No', s.strata_plan_no),
         detailItem('Selling Agent', s.selling_agent),
-        detailItem('Aspect', s.aspect),
       ].join('');
       return `
         <div class="sale-card">
@@ -117,21 +114,26 @@
         <div class="detail-header">
           <button type="button" class="mobile-back-btn" id="back-to-list" aria-label="Back to list">&larr;</button>
           <div class="detail-title-group">
-            <h2>${escapeHtml(p.name || p.address)}</h2>
+            <h2>${escapeHtml(p.unit_number ? `Unit ${p.unit_number} ` : '') + p.address}</h2>
             ${p.type ? `<span class="type-badge" data-type="${typeSlug(p.type)}">${escapeHtml(p.type)}</span>` : ''}
           </div>
         </div>
 
         <dl class="detail-fields">
-          ${fieldRow('Address', p.address)}
+          ${fieldRow('Street Address', p.address)}
+          ${fieldRow('Unit Number', p.unit_number)}
           ${fieldRow('Suburb', p.suburb)}
+          ${fieldRow('Layout', p.layout)}
+          ${fieldRow('Aspect', p.aspect)}
           ${fieldRow('Year Built', p.year_built)}
-          ${fieldRow('Built By', p.built_by)}
-          ${fieldRow('Managed By', p.managed_by)}
-          ${fieldRow('Manager', p.manager)}
-          ${emailRow("Manager's Email", p.manager_email)}
-          ${fieldRow("Manager's Phone", p.manager_phone)}
-          ${fieldRow('Number of Units', p.number_of_units)}
+          ${fieldRow('Builder/Developer', p.built_by)}
+          ${fieldRow('Property Name', p.name)}
+          ${fieldRow('Strata Management Company', p.managed_by)}
+          ${fieldRow('Strata Manager', p.manager)}
+          ${emailRow("Strata Manager's Email", p.manager_email)}
+          ${fieldRow("Strata Manager's Phone", p.manager_phone)}
+          ${fieldRow('Number of Strata Lots', p.number_of_units)}
+          ${fieldRow('Strata Plan No', p.strata_plan_no)}
           ${facilitiesRow(p.facilities)}
         </dl>
 

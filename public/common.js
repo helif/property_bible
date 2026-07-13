@@ -1,12 +1,14 @@
-const PROPERTY_TYPES = ['Apartment Complex', 'House and Land', 'Townhouse/Villa', 'Commercial', 'Vacant'];
+const PROPERTY_TYPES = ['Apartment', 'House', 'Townhouse/Villa', 'Commercial', 'Vacant Land', 'Other'];
+const FACILITY_OPTIONS = ['Indoor Pool', 'Spa', 'BBQ Area', 'Gym', 'Sauna', 'Gardens', 'Picnic Area', 'Outdoor Pool/Spa', 'Reception', 'Terrace', 'Lounge', 'Function Room', 'Other'];
 const LAYOUT_OPTIONS = ['1-1-0', '1-1-1', '2-1-0', '2-2-0', '2-2-1', '2-2-2', '3-1-1', '3-2-1', '3-2-2', '3-3-2', 'Other'];
-const FACILITY_OPTIONS = ['Pool', 'BBQ Area', 'Gym', 'Garden', 'Picnic Area', 'Reception', 'Lounge'];
+
 const TYPE_SLUGS = {
-  'Apartment Complex': 'apartment',
-  'House and Land': 'house',
+  'Apartment': 'apartment',
+  'House': 'house',
   'Townhouse/Villa': 'townhouse',
   'Commercial': 'commercial',
-  'Vacant': 'vacant',
+  'Vacant Land': 'vacant',
+  'Other': 'other',
 };
 function typeSlug(type) {
   return TYPE_SLUGS[type] || 'none';

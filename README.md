@@ -4,7 +4,7 @@ A self-hosted property management web app: track addresses, owners, tenants, bui
 
 ## Features
 
-- **Property records**: name, suburb, type (Apartment Complex, House and Land, Townhouse/Villa, Commercial, Vacant), address, year built, built by, managed by, and manager.
+- **Property records**: name, suburb, type (Apartment, House, Townhouse/Villa, Commercial, Vacant Land), address, year built, built by, managed by, and manager.
 - **Sales history** per property: date, price, unit number, layout, buyer, seller, strata levy, water, council fees, and tenanted status.
 - **Keyword search** across every property and sale field, with instant results as you type.
 - **Three pages, separated by purpose**:

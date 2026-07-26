@@ -79,7 +79,10 @@
       state.selectedId = null;
       renderDetail();
     });
-    document.getElementById('property-form').addEventListener('submit', async (e) => {
+    const newForm = document.getElementById('property-form');
+    applyStrataFieldVisibility(newForm);
+    newForm.querySelector('#f-type').addEventListener('change', () => applyStrataFieldVisibility(newForm));
+    newForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = readPropertyForm(e.target);
       try {
@@ -91,6 +94,11 @@
         showToast(err.message, true);
       }
     });
+  }
+
+  function applyStrataFieldVisibility(form) {
+    const show = showsStrataFields(form.querySelector('#f-type').value);
+    form.querySelectorAll('.strata-field').forEach((el) => { el.hidden = !show; });
   }
 
   function propertyFieldsHtml(p) {
@@ -111,12 +119,12 @@
           <input id="f-address" name="address" required value="${escapeHtml(p.address)}" placeholder="123 Main St, Springfield">
         </div>
         <div class="field">
-          <label for="f-unit-number">Unit Number</label>
-          <input id="f-unit-number" name="unit_number" value="${escapeHtml(p.unit_number)}" placeholder="e.g. 12">
-        </div>
-        <div class="field">
           <label for="f-suburb">Suburb</label>
           <input id="f-suburb" name="suburb" value="${escapeHtml(p.suburb)}" placeholder="Suburb">
+        </div>
+        <div class="field strata-field">
+          <label for="f-unit-number">Unit Number</label>
+          <input id="f-unit-number" name="unit_number" value="${escapeHtml(p.unit_number)}" placeholder="e.g. 12">
         </div>
         <div class="field">
           <label for="f-layout">Layout</label>
@@ -129,43 +137,55 @@
           <label for="f-aspect">Aspect</label>
           <input id="f-aspect" name="aspect" value="${escapeHtml(p.aspect)}" placeholder="e.g. North-facing">
         </div>
-        <div class="field">
-          <label for="f-year-built">Year Built</label>
-          <input id="f-year-built" name="year_built" value="${escapeHtml(p.year_built)}" placeholder="e.g. 1998">
+        <div class="field strata-field">
+          <label for="f-strata-plan-no">Strata Plan No</label>
+          <input id="f-strata-plan-no" name="strata_plan_no" value="${escapeHtml(p.strata_plan_no)}" placeholder="e.g. SP12345">
+        </div>
+        <div class="field strata-field">
+          <label for="f-number-of-units">Number of Strata Lots</label>
+          <input id="f-number-of-units" name="number_of_units" type="number" min="0" step="1" value="${p.number_of_units ?? ''}" placeholder="e.g. 24">
         </div>
         <div class="field">
           <label for="f-built-by">Builder/Developer</label>
           <input id="f-built-by" name="built_by" value="${escapeHtml(p.built_by)}" placeholder="Builder/developer">
         </div>
         <div class="field">
+          <label for="f-year-built">Year Built</label>
+          <input id="f-year-built" name="year_built" value="${escapeHtml(p.year_built)}" placeholder="e.g. 1998">
+        </div>        
+        <div class="field strata-field">
           <label for="f-name">Property Name</label>
           <input id="f-name" name="name" value="${escapeHtml(p.name)}" placeholder="Property name">
         </div>
-        <div class="field">
+        <div class="field strata-field">
           <label for="f-managed-by">Strata Management Company</label>
           <input id="f-managed-by" name="managed_by" value="${escapeHtml(p.managed_by)}" placeholder="Managing company">
         </div>
-        <div class="field">
+        <div class="field strata-field">
           <label for="f-manager">Strata Manager</label>
           <input id="f-manager" name="manager" value="${escapeHtml(p.manager)}" placeholder="Manager contact name">
         </div>
-        <div class="field">
+        <div class="field strata-field">
           <label for="f-manager-email">Strata Manager's Email</label>
           <input id="f-manager-email" name="manager_email" type="email" value="${escapeHtml(p.manager_email)}" placeholder="manager@example.com">
         </div>
-        <div class="field">
+        <div class="field strata-field">
           <label for="f-manager-phone">Strata Manager's Phone</label>
           <input id="f-manager-phone" name="manager_phone" value="${escapeHtml(p.manager_phone)}" placeholder="Phone number">
         </div>
-        <div class="field">
-          <label for="f-number-of-units">Number of Strata Lots</label>
-          <input id="f-number-of-units" name="number_of_units" type="number" min="0" step="1" value="${p.number_of_units ?? ''}" placeholder="e.g. 24">
+        <div class="field strata-field">
+          <label for="f-building-manager">Building Manager</label>
+          <input id="f-building-manager" name="building_manager" value="${escapeHtml(p.building_manager)}" placeholder="Building manager name">
         </div>
-        <div class="field">
-          <label for="f-strata-plan-no">Strata Plan No</label>
-          <input id="f-strata-plan-no" name="strata_plan_no" value="${escapeHtml(p.strata_plan_no)}" placeholder="e.g. SP12345">
+        <div class="field strata-field">
+          <label for="f-building-manager-email">Building Manager's Email</label>
+          <input id="f-building-manager-email" name="building_manager_email" type="email" value="${escapeHtml(p.building_manager_email)}" placeholder="manager@example.com">
         </div>
-        <div class="field full">
+        <div class="field strata-field">
+          <label for="f-building-manager-phone">Building Manager's Phone</label>
+          <input id="f-building-manager-phone" name="building_manager_phone" value="${escapeHtml(p.building_manager_phone)}" placeholder="Phone number">
+        </div>
+        <div class="field strata-field full">
           <label>Facilities</label>
           <div class="facility-options">
             ${FACILITY_OPTIONS.map((f) => `
@@ -183,16 +203,19 @@
   function readPropertyForm(form) {
     const fd = new FormData(form);
     return {
-      name: fd.get('name')?.trim() || '',
-      suburb: fd.get('suburb')?.trim() || '',
       type: fd.get('type') || '',
       address: fd.get('address')?.trim() || '',
+      suburb: fd.get('suburb')?.trim() || '',
+      name: fd.get('name')?.trim() || '',
       year_built: fd.get('year_built')?.trim() || '',
       built_by: fd.get('built_by')?.trim() || '',
       managed_by: fd.get('managed_by')?.trim() || '',
       manager: fd.get('manager')?.trim() || '',
       manager_email: fd.get('manager_email')?.trim() || '',
       manager_phone: fd.get('manager_phone')?.trim() || '',
+      building_manager: fd.get('building_manager')?.trim() || '',
+      building_manager_email: fd.get('building_manager_email')?.trim() || '',
+      building_manager_phone: fd.get('building_manager_phone')?.trim() || '',
       number_of_units: fd.get('number_of_units') || '',
       unit_number: fd.get('unit_number')?.trim() || '',
       layout: fd.get('layout') || '',
@@ -285,7 +308,10 @@
 
     document.getElementById('back-to-list').addEventListener('click', backToList);
 
-    document.getElementById('property-form').addEventListener('submit', async (e) => {
+    const editForm = document.getElementById('property-form');
+    applyStrataFieldVisibility(editForm);
+    editForm.querySelector('#f-type').addEventListener('change', () => applyStrataFieldVisibility(editForm));
+    editForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = readPropertyForm(e.target);
       try {

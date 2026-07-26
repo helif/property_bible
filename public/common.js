@@ -14,6 +14,11 @@ function typeSlug(type) {
   return TYPE_SLUGS[type] || 'none';
 }
 
+const STRATA_FIELD_TYPES = ['Apartment', 'Townhouse/Villa'];
+function showsStrataFields(type) {
+  return STRATA_FIELD_TYPES.includes(type);
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },

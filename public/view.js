@@ -121,20 +121,23 @@
 
         <dl class="detail-fields">
           ${fieldRow('Street Address', p.address)}
-          ${fieldRow('Unit Number', p.unit_number)}
           ${fieldRow('Suburb', p.suburb)}
+          ${showsStrataFields(p.type) ? fieldRow('Unit Number', p.unit_number) : ''}
           ${fieldRow('Layout', p.layout)}
           ${fieldRow('Aspect', p.aspect)}
-          ${fieldRow('Year Built', p.year_built)}
+          ${showsStrataFields(p.type) ? fieldRow('Strata Plan No', p.strata_plan_no) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Number of Strata Lots', p.number_of_units) : ''}
           ${fieldRow('Builder/Developer', p.built_by)}
-          ${fieldRow('Property Name', p.name)}
-          ${fieldRow('Strata Management Company', p.managed_by)}
-          ${fieldRow('Strata Manager', p.manager)}
-          ${emailRow("Strata Manager's Email", p.manager_email)}
-          ${fieldRow("Strata Manager's Phone", p.manager_phone)}
-          ${fieldRow('Number of Strata Lots', p.number_of_units)}
-          ${fieldRow('Strata Plan No', p.strata_plan_no)}
-          ${facilitiesRow(p.facilities)}
+          ${fieldRow('Year Built', p.year_built)}
+          ${showsStrataFields(p.type) ? fieldRow('Property Name', p.name) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Strata Management Company', p.managed_by) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Strata Manager', p.manager) : ''}
+          ${showsStrataFields(p.type) ? emailRow("Strata Manager's Email", p.manager_email) : ''}
+          ${showsStrataFields(p.type) ? fieldRow("Strata Manager's Phone", p.manager_phone) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Building Manager', p.building_manager) : ''}
+          ${showsStrataFields(p.type) ? emailRow("Building Manager's Email", p.building_manager_email) : ''}
+          ${showsStrataFields(p.type) ? fieldRow("Building Manager's Phone", p.building_manager_phone) : ''}
+          ${showsStrataFields(p.type) ? facilitiesRow(p.facilities) : ''}
         </dl>
 
         <div class="section-title">Sales History</div>

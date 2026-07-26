@@ -164,6 +164,15 @@ if (!columns.includes('strata_plan_no')) {
   }
 }
 
+// Add building manager contact fields — distinct from the strata manager fields above
+if (!columns.includes('building_manager')) {
+  db.exec(`
+    ALTER TABLE properties ADD COLUMN building_manager TEXT;
+    ALTER TABLE properties ADD COLUMN building_manager_email TEXT;
+    ALTER TABLE properties ADD COLUMN building_manager_phone TEXT;
+  `);
+}
+
 const salesColumnsNow = db.prepare("PRAGMA table_info(sales_history)").all().map((c) => c.name);
 if (salesColumnsNow.includes('unit_number')) {
   db.exec(`
@@ -364,9 +373,10 @@ app.get('/api/search', (req, res) => {
        OR p.year_built LIKE ? OR p.built_by LIKE ? OR p.managed_by LIKE ? OR p.manager LIKE ?
        OR p.manager_email LIKE ? OR p.manager_phone LIKE ? OR p.unit_number LIKE ? OR p.layout LIKE ?
        OR p.aspect LIKE ? OR p.strata_plan_no LIKE ? OR p.facilities LIKE ?
+       OR p.building_manager LIKE ? OR p.building_manager_email LIKE ? OR p.building_manager_phone LIKE ?
        OR s.buyer LIKE ? OR s.seller LIKE ? OR s.selling_agent LIKE ?
     ORDER BY p.updated_at DESC
-  `).all(like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like);
+  `).all(like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like);
   res.json(rows.map(serializeProperty));
 });
 
@@ -383,6 +393,7 @@ function validatePropertyBody(body) {
   const {
     name, suburb, type, address, year_built, built_by, managed_by, manager,
     manager_email, manager_phone, number_of_units, unit_number, layout, aspect, strata_plan_no, facilities,
+    building_manager, building_manager_email, building_manager_phone,
   } = body;
   if (!address || !address.trim()) {
     return { error: 'Address is required' };
@@ -392,6 +403,9 @@ function validatePropertyBody(body) {
   }
   if (manager_email && manager_email.trim() && !EMAIL_PATTERN.test(manager_email.trim())) {
     return { error: 'Manager email is not a valid email address' };
+  }
+  if (building_manager_email && building_manager_email.trim() && !EMAIL_PATTERN.test(building_manager_email.trim())) {
+    return { error: 'Building manager email is not a valid email address' };
   }
   if (layout && !LAYOUT_OPTIONS.includes(layout)) {
     return { error: `Layout must be one of: ${LAYOUT_OPTIONS.join(', ')}` };
@@ -428,6 +442,9 @@ function validatePropertyBody(body) {
       aspect: aspect?.trim() || null,
       strata_plan_no: strata_plan_no?.trim() || null,
       facilities: facilitiesList.length ? JSON.stringify(facilitiesList) : null,
+      building_manager: building_manager?.trim() || null,
+      building_manager_email: building_manager_email?.trim() || null,
+      building_manager_phone: building_manager_phone?.trim() || null,
     },
   };
 }
@@ -439,13 +456,15 @@ app.post('/api/properties', requireAdmin, (req, res) => {
   const result = db.prepare(`
     INSERT INTO properties (
       name, suburb, type, address, year_built, built_by, managed_by, manager,
-      manager_email, manager_phone, number_of_units, unit_number, layout, aspect, strata_plan_no, facilities
+      manager_email, manager_phone, number_of_units, unit_number, layout, aspect, strata_plan_no, facilities,
+      building_manager, building_manager_email, building_manager_phone
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
     values.managed_by, values.manager, values.manager_email, values.manager_phone,
-    values.number_of_units, values.unit_number, values.layout, values.aspect, values.strata_plan_no, values.facilities
+    values.number_of_units, values.unit_number, values.layout, values.aspect, values.strata_plan_no, values.facilities,
+    values.building_manager, values.building_manager_email, values.building_manager_phone
   );
   res.status(201).json(getPropertyWithSales(result.lastInsertRowid));
 });
@@ -460,13 +479,15 @@ app.put('/api/properties/:id', requireAdmin, (req, res) => {
     UPDATE properties
     SET name = ?, suburb = ?, type = ?, address = ?, year_built = ?, built_by = ?, managed_by = ?, manager = ?,
         manager_email = ?, manager_phone = ?, number_of_units = ?, unit_number = ?, layout = ?, aspect = ?,
-        strata_plan_no = ?, facilities = ?, updated_at = datetime('now')
+        strata_plan_no = ?, facilities = ?, building_manager = ?, building_manager_email = ?,
+        building_manager_phone = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
     values.managed_by, values.manager, values.manager_email, values.manager_phone,
     values.number_of_units, values.unit_number, values.layout, values.aspect, values.strata_plan_no,
-    values.facilities, req.params.id
+    values.facilities, values.building_manager, values.building_manager_email, values.building_manager_phone,
+    req.params.id
   );
   res.json(getPropertyWithSales(req.params.id));
 });

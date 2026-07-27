@@ -554,6 +554,26 @@ body {
   border-top: 1px solid var(--border);
 }
 
+.building-match-banner {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  border: 1px solid var(--primary);
+  background: rgba(47, 111, 237, 0.08);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+/* display is scoped to :not([hidden]) so the JS `banner.hidden = true` toggle actually hides it —
+   an unconditional `display: flex` here would override the browser's default [hidden] { display: none }. */
+.building-match-banner:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.building-match-text { flex: 1; min-width: 200px; }
+.building-match-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
 .credential-box {
   margin-top: 16px;
   padding: 14px 16px;

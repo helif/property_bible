@@ -125,19 +125,19 @@
           ${showsStrataFields(p.type) ? fieldRow('Unit Number', p.unit_number) : ''}
           ${fieldRow('Layout', p.layout)}
           ${fieldRow('Aspect', p.aspect)}
-          ${showsStrataFields(p.type) ? fieldRow('Strata Plan No', p.strata_plan_no) : ''}
-          ${showsStrataFields(p.type) ? fieldRow('Number of Strata Lots', p.number_of_units) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Strata Plan No', p.building?.strata_plan_no) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Number of Strata Lots', p.building?.number_of_units) : ''}
           ${fieldRow('Builder/Developer', p.built_by)}
           ${fieldRow('Year Built', p.year_built)}
-          ${showsStrataFields(p.type) ? fieldRow('Property Name', p.name) : ''}
-          ${showsStrataFields(p.type) ? fieldRow('Strata Management Company', p.managed_by) : ''}
-          ${showsStrataFields(p.type) ? fieldRow('Strata Manager', p.manager) : ''}
-          ${showsStrataFields(p.type) ? emailRow("Strata Manager's Email", p.manager_email) : ''}
-          ${showsStrataFields(p.type) ? fieldRow("Strata Manager's Phone", p.manager_phone) : ''}
-          ${showsStrataFields(p.type) ? fieldRow('Building Manager', p.building_manager) : ''}
-          ${showsStrataFields(p.type) ? emailRow("Building Manager's Email", p.building_manager_email) : ''}
-          ${showsStrataFields(p.type) ? fieldRow("Building Manager's Phone", p.building_manager_phone) : ''}
-          ${showsStrataFields(p.type) ? facilitiesRow(p.facilities) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Property Name', p.building?.name) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Strata Management Company', p.building?.managed_by) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Strata Manager', p.building?.manager) : ''}
+          ${showsStrataFields(p.type) ? emailRow("Strata Manager's Email", p.building?.manager_email) : ''}
+          ${showsStrataFields(p.type) ? fieldRow("Strata Manager's Phone", p.building?.manager_phone) : ''}
+          ${showsStrataFields(p.type) ? fieldRow('Building Manager', p.building?.building_manager) : ''}
+          ${showsStrataFields(p.type) ? emailRow("Building Manager's Email", p.building?.building_manager_email) : ''}
+          ${showsStrataFields(p.type) ? fieldRow("Building Manager's Phone", p.building?.building_manager_phone) : ''}
+          ${showsStrataFields(p.type) ? facilitiesRow(p.building?.facilities) : ''}
         </dl>
 
         <div class="section-title">Sales History</div>

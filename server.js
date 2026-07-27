@@ -9,9 +9,12 @@ require('node:fs').mkdirSync(path.join(__dirname, 'data'), { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA foreign_keys = ON');
 
+// Kept in sync with public/common.js — server validates against these, common.js renders <option>s from them.
 const PROPERTY_TYPES = ['Apartment', 'House', 'Townhouse/Villa', 'Commercial', 'Vacant Land', 'Other'];
 const FACILITY_OPTIONS = ['Indoor Pool', 'Spa', 'BBQ Area', 'Gym', 'Sauna', 'Gardens', 'Picnic Area', 'Outdoor Pool/Spa', 'Reception', 'Terrace', 'Lounge', 'Function Room', 'Other'];
 const LAYOUT_OPTIONS = ['1-1-0', '1-1-1', '2-1-0', '2-2-0', '2-2-1', '2-2-2', '3-1-1', '3-2-1', '3-2-2', '3-3-2', 'Other'];
+// Also kept in sync with public/common.js's STRATA_FIELD_TYPES/showsStrataFields — property types that have a Building.
+const STRATA_FIELD_TYPES = ['Apartment', 'Townhouse/Villa'];
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS properties (
@@ -67,6 +70,29 @@ db.exec(`
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS buildings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    address TEXT NOT NULL,
+    suburb TEXT,
+    strata_plan_no TEXT,
+    number_of_units INTEGER,
+    managed_by TEXT,
+    manager TEXT,
+    manager_email TEXT,
+    manager_phone TEXT,
+    building_manager TEXT,
+    building_manager_email TEXT,
+    building_manager_phone TEXT,
+    facilities TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_buildings_key
+    ON buildings(address COLLATE NOCASE, suburb COLLATE NOCASE, strata_plan_no COLLATE NOCASE)
+    WHERE strata_plan_no IS NOT NULL AND strata_plan_no <> '';
 `);
 
 // Migrate older users table (add role column, defaulting existing accounts to admin)
@@ -81,8 +107,11 @@ if (!userColumns.includes('can_manage_users')) {
 }
 
 // Migrate older schemas (owner/tenant/building_manager/notes -> name/suburb/type/year_built/built_by/managed_by/manager)
+// Note: 'name' (and several other columns checked below) were later moved off properties entirely by
+// the Building split further down — every such guard is also gated on `!columns.includes('building_id')`
+// so it can never fire again once that split has happened, even though its own sentinel column is gone.
 const columns = db.prepare("PRAGMA table_info(properties)").all().map((c) => c.name);
-if (!columns.includes('name')) {
+if (!columns.includes('name') && !columns.includes('building_id')) {
   db.exec(`
     ALTER TABLE properties ADD COLUMN name TEXT;
     ALTER TABLE properties ADD COLUMN suburb TEXT;
@@ -106,7 +135,7 @@ if (!columns.includes('name')) {
 }
 
 // Migrate in manager contact details, unit count, and facilities
-if (!columns.includes('manager_email')) {
+if (!columns.includes('manager_email') && !columns.includes('building_id')) {
   db.exec(`
     ALTER TABLE properties ADD COLUMN manager_email TEXT;
     ALTER TABLE properties ADD COLUMN manager_phone TEXT;
@@ -150,7 +179,7 @@ if (!columns.includes('unit_number')) {
 
 // Move strata plan number from sales_history to properties — the strata plan doesn't
 // change between re-sales of the same unit.
-if (!columns.includes('strata_plan_no')) {
+if (!columns.includes('strata_plan_no') && !columns.includes('building_id')) {
   db.exec('ALTER TABLE properties ADD COLUMN strata_plan_no TEXT');
   if (salesColumns.includes('strata_plan_no')) {
     db.exec(`
@@ -161,12 +190,67 @@ if (!columns.includes('strata_plan_no')) {
 }
 
 // Add building manager contact fields — distinct from the strata manager fields above
-if (!columns.includes('building_manager')) {
+if (!columns.includes('building_manager') && !columns.includes('building_id')) {
   db.exec(`
     ALTER TABLE properties ADD COLUMN building_manager TEXT;
     ALTER TABLE properties ADD COLUMN building_manager_email TEXT;
     ALTER TABLE properties ADD COLUMN building_manager_phone TEXT;
   `);
+}
+
+// Split out a Building entity (Apartment/Townhouse-only) from Property — the building name, strata
+// plan no, strata lot count, strata/building manager contacts, and facilities describe the shared
+// building, not an individual unit, and previously duplicated (and could drift) across every unit's row.
+if (!columns.includes('building_id')) {
+  db.exec('ALTER TABLE properties ADD COLUMN building_id INTEGER REFERENCES buildings(id) ON DELETE SET NULL');
+
+  // Dedupe: group existing strata-type rows by matching (address, suburb, strata_plan_no) — including a
+  // blank strata_plan_no as a matching value, since this is a one-time backfill of presumed-real data.
+  // (Ongoing saves are stricter — see resolveBuildingLink below — and never auto-merge on a blank key.)
+  const candidates = db.prepare(
+    `SELECT * FROM properties WHERE type IN (${STRATA_FIELD_TYPES.map(() => '?').join(',')})`
+  ).all(...STRATA_FIELD_TYPES);
+  const groups = new Map();
+  for (const row of candidates) {
+    const key = [row.address, row.suburb, row.strata_plan_no].map((v) => (v || '').trim().toLowerCase()).join('');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const firstNonBlank = (rows, col) => {
+    for (const r of rows) if (r[col] !== null && String(r[col]).trim() !== '') return r[col];
+    return null;
+  };
+  const insertBuilding = db.prepare(`
+    INSERT INTO buildings (
+      name, address, suburb, strata_plan_no, number_of_units, managed_by, manager,
+      manager_email, manager_phone, building_manager, building_manager_email, building_manager_phone, facilities
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const linkProperty = db.prepare('UPDATE properties SET building_id = ? WHERE id = ?');
+
+  for (const rows of groups.values()) {
+    const first = rows[0];
+    const unitsRow = rows.find((r) => r.number_of_units !== null);
+    const facilitySet = new Set();
+    for (const r of rows) for (const f of parseFacilities(r.facilities)) facilitySet.add(f);
+    const result = insertBuilding.run(
+      firstNonBlank(rows, 'name'), first.address, firstNonBlank(rows, 'suburb'), firstNonBlank(rows, 'strata_plan_no'),
+      unitsRow ? unitsRow.number_of_units : null,
+      firstNonBlank(rows, 'managed_by'), firstNonBlank(rows, 'manager'),
+      firstNonBlank(rows, 'manager_email'), firstNonBlank(rows, 'manager_phone'),
+      firstNonBlank(rows, 'building_manager'), firstNonBlank(rows, 'building_manager_email'), firstNonBlank(rows, 'building_manager_phone'),
+      facilitySet.size ? JSON.stringify([...facilitySet]) : null
+    );
+    for (const r of rows) linkProperty.run(result.lastInsertRowid, r.id);
+  }
+
+  // Non-strata-type rows get no building row — any stray values in these columns (the UI has always
+  // gated them to strata types) are discarded here along with the columns themselves.
+  for (const col of ['name', 'managed_by', 'manager', 'manager_email', 'manager_phone', 'number_of_units',
+    'strata_plan_no', 'facilities', 'building_manager', 'building_manager_email', 'building_manager_phone']) {
+    db.exec(`ALTER TABLE properties DROP COLUMN ${col}`);
+  }
 }
 
 const salesColumnsNow = db.prepare("PRAGMA table_info(sales_history)").all().map((c) => c.name);
@@ -332,8 +416,97 @@ function parseFacilities(json) {
   }
 }
 
+function getBuilding(id) {
+  if (!id) return null;
+  const row = db.prepare('SELECT * FROM buildings WHERE id = ?').get(id);
+  return row ? { ...row, facilities: parseFacilities(row.facilities) } : null;
+}
+
+function normKey(s) {
+  return (s || '').toString().trim().toLowerCase();
+}
+
+// Buildings are only matched/deduped when a strata plan number is present — it's the one field that
+// reliably identifies a specific building. Without it, a building is always private to its property
+// (see resolveBuildingLink) and is never found here.
+function findBuildingByKey(address, suburb, strataPlanNo) {
+  const spn = normKey(strataPlanNo);
+  if (!spn) return null;
+  return db.prepare(`
+    SELECT * FROM buildings
+    WHERE address COLLATE NOCASE = ? AND COALESCE(suburb, '') COLLATE NOCASE = ? AND strata_plan_no COLLATE NOCASE = ?
+  `).get((address || '').trim(), (suburb || '').trim(), (strataPlanNo || '').trim()) || null;
+}
+
+// Resolves (creates/reuses/updates) the building a property should link to. The server never trusts a
+// client-supplied building_id — this always re-derives the link from (address, suburb, strata_plan_no)
+// so the result is consistent regardless of what the client's lookup/confirm UX did or didn't do.
+// currentBuildingId is the property's building_id before this save (null for a new property, or one that
+// never had a building) — passing it lets an edit with a blank strata_plan_no keep updating its own
+// private building row instead of creating a new orphaned one on every save.
+function resolveBuildingLink(type, address, suburb, values, currentBuildingId) {
+  if (!STRATA_FIELD_TYPES.includes(type)) return null;
+
+  const insertNew = () => db.prepare(`
+    INSERT INTO buildings (
+      name, address, suburb, strata_plan_no, number_of_units, managed_by, manager,
+      manager_email, manager_phone, building_manager, building_manager_email, building_manager_phone, facilities
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    values.name, address, suburb, values.strata_plan_no, values.number_of_units, values.managed_by,
+    values.manager, values.manager_email, values.manager_phone, values.building_manager,
+    values.building_manager_email, values.building_manager_phone, values.facilities
+  ).lastInsertRowid;
+
+  if (!values.strata_plan_no) {
+    if (currentBuildingId) {
+      db.prepare(`
+        UPDATE buildings SET name = ?, address = ?, suburb = ?, strata_plan_no = NULL, number_of_units = ?,
+          managed_by = ?, manager = ?, manager_email = ?, manager_phone = ?, building_manager = ?,
+          building_manager_email = ?, building_manager_phone = ?, facilities = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(
+        values.name, address, suburb, values.number_of_units, values.managed_by, values.manager,
+        values.manager_email, values.manager_phone, values.building_manager,
+        values.building_manager_email, values.building_manager_phone, values.facilities, currentBuildingId
+      );
+      return currentBuildingId;
+    }
+    return insertNew();
+  }
+
+  const existing = findBuildingByKey(address, suburb, values.strata_plan_no);
+  if (!existing) return insertNew();
+
+  // Shared building found by key — merge-update. A blank submitted field never overwrites the shared
+  // building's existing value, so one unit's edit can't wipe data still relevant to sibling units.
+  const merged = {
+    name: values.name ?? existing.name,
+    number_of_units: values.number_of_units !== null ? values.number_of_units : existing.number_of_units,
+    managed_by: values.managed_by ?? existing.managed_by,
+    manager: values.manager ?? existing.manager,
+    manager_email: values.manager_email ?? existing.manager_email,
+    manager_phone: values.manager_phone ?? existing.manager_phone,
+    building_manager: values.building_manager ?? existing.building_manager,
+    building_manager_email: values.building_manager_email ?? existing.building_manager_email,
+    building_manager_phone: values.building_manager_phone ?? existing.building_manager_phone,
+    facilities: values.facilities ?? existing.facilities,
+  };
+  db.prepare(`
+    UPDATE buildings SET name = ?, address = ?, suburb = ?, strata_plan_no = ?, number_of_units = ?,
+      managed_by = ?, manager = ?, manager_email = ?, manager_phone = ?, building_manager = ?,
+      building_manager_email = ?, building_manager_phone = ?, facilities = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    merged.name, address, suburb, values.strata_plan_no, merged.number_of_units, merged.managed_by,
+    merged.manager, merged.manager_email, merged.manager_phone, merged.building_manager,
+    merged.building_manager_email, merged.building_manager_phone, merged.facilities, existing.id
+  );
+  return existing.id;
+}
+
 function serializeProperty(row) {
-  return { ...row, facilities: parseFacilities(row.facilities), sales_history: getSalesFor(row.id) };
+  return { ...row, building: getBuilding(row.building_id), sales_history: getSalesFor(row.id) };
 }
 
 function getPropertyWithSales(id) {
@@ -348,8 +521,22 @@ app.get('/api/properties', (req, res) => {
   res.json(properties.map(serializeProperty));
 });
 
-// Keyword search across name, suburb, type, address, built by, managed by, manager, manager contact,
-// unit/layout/aspect/strata plan, facilities, and sales parties
+// Look up an existing building by address + suburb + strata plan no, for the "this building already
+// exists — use its details?" prompt on the property form. Requires address and strata_plan_no (suburb
+// optional) since a strata plan no is what makes the match reliable — see findBuildingByKey.
+app.get('/api/buildings/lookup', (req, res) => {
+  const { address, suburb, strata_plan_no } = req.query;
+  if (!normKey(address) || !normKey(strata_plan_no)) {
+    return res.status(404).json({ error: 'No matching building found' });
+  }
+  const building = findBuildingByKey(address, suburb, strata_plan_no);
+  if (!building) return res.status(404).json({ error: 'No matching building found' });
+  res.json({ ...building, facilities: parseFacilities(building.facilities) });
+});
+
+// Keyword search across property fields (suburb, type, address, unit/layout/aspect, built by/year),
+// the linked building's fields (name, strata plan, manager/building-manager contacts, facilities), and
+// sales parties
 app.get('/api/search', (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) {
@@ -360,11 +547,12 @@ app.get('/api/search', (req, res) => {
   const rows = db.prepare(`
     SELECT DISTINCT p.* FROM properties p
     LEFT JOIN sales_history s ON s.property_id = p.id
-    WHERE p.name LIKE ? OR p.suburb LIKE ? OR p.type LIKE ? OR p.address LIKE ?
-       OR p.year_built LIKE ? OR p.built_by LIKE ? OR p.managed_by LIKE ? OR p.manager LIKE ?
-       OR p.manager_email LIKE ? OR p.manager_phone LIKE ? OR p.unit_number LIKE ? OR p.layout LIKE ?
-       OR p.aspect LIKE ? OR p.strata_plan_no LIKE ? OR p.facilities LIKE ?
-       OR p.building_manager LIKE ? OR p.building_manager_email LIKE ? OR p.building_manager_phone LIKE ?
+    LEFT JOIN buildings b ON b.id = p.building_id
+    WHERE p.type LIKE ? OR p.address LIKE ? OR p.suburb LIKE ?
+       OR p.year_built LIKE ? OR p.built_by LIKE ? OR p.unit_number LIKE ? OR p.layout LIKE ? OR p.aspect LIKE ?
+       OR b.name LIKE ? OR b.strata_plan_no LIKE ? OR b.managed_by LIKE ? OR b.manager LIKE ?
+       OR b.manager_email LIKE ? OR b.manager_phone LIKE ? OR b.building_manager LIKE ?
+       OR b.building_manager_email LIKE ? OR b.building_manager_phone LIKE ? OR b.facilities LIKE ?
        OR s.buyer LIKE ? OR s.seller LIKE ? OR s.selling_agent LIKE ?
     ORDER BY p.updated_at DESC
   `).all(like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like);
@@ -381,25 +569,42 @@ app.get('/api/properties/:id', (req, res) => {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validatePropertyBody(body) {
-  const {
-    name, suburb, type, address, year_built, built_by, managed_by, manager,
-    manager_email, manager_phone, number_of_units, unit_number, layout, aspect, strata_plan_no, facilities,
-    building_manager, building_manager_email, building_manager_phone,
-  } = body;
+  const { suburb, type, address, year_built, built_by, unit_number, layout, aspect } = body;
   if (!address || !address.trim()) {
     return { error: 'Address is required' };
   }
   if (type && !PROPERTY_TYPES.includes(type)) {
     return { error: `Type must be one of: ${PROPERTY_TYPES.join(', ')}` };
   }
+  if (layout && !LAYOUT_OPTIONS.includes(layout)) {
+    return { error: `Layout must be one of: ${LAYOUT_OPTIONS.join(', ')}` };
+  }
+  return {
+    values: {
+      suburb: suburb?.trim() || null,
+      type: type || null,
+      address: address.trim(),
+      year_built: year_built?.toString().trim() || null,
+      built_by: built_by?.trim() || null,
+      unit_number: unit_number?.trim() || null,
+      layout: layout || null,
+      aspect: aspect?.trim() || null,
+    },
+  };
+}
+
+// Validates the building sub-object of a property request — only required/read when the property's
+// type is strata-eligible (Apartment/Townhouse). Same conventions/error messages as property validation.
+function validateBuildingFields(body) {
+  const {
+    name, managed_by, manager, manager_email, manager_phone, number_of_units, strata_plan_no, facilities,
+    building_manager, building_manager_email, building_manager_phone,
+  } = body || {};
   if (manager_email && manager_email.trim() && !EMAIL_PATTERN.test(manager_email.trim())) {
     return { error: 'Manager email is not a valid email address' };
   }
   if (building_manager_email && building_manager_email.trim() && !EMAIL_PATTERN.test(building_manager_email.trim())) {
     return { error: 'Building manager email is not a valid email address' };
-  }
-  if (layout && !LAYOUT_OPTIONS.includes(layout)) {
-    return { error: `Layout must be one of: ${LAYOUT_OPTIONS.join(', ')}` };
   }
   let unitsValue = null;
   if (number_of_units !== undefined && number_of_units !== null && number_of_units !== '') {
@@ -418,19 +623,11 @@ function validatePropertyBody(body) {
   return {
     values: {
       name: name?.trim() || null,
-      suburb: suburb?.trim() || null,
-      type: type || null,
-      address: address.trim(),
-      year_built: year_built?.toString().trim() || null,
-      built_by: built_by?.trim() || null,
       managed_by: managed_by?.trim() || null,
       manager: manager?.trim() || null,
       manager_email: manager_email?.trim() || null,
       manager_phone: manager_phone?.trim() || null,
       number_of_units: unitsValue,
-      unit_number: unit_number?.trim() || null,
-      layout: layout || null,
-      aspect: aspect?.trim() || null,
       strata_plan_no: strata_plan_no?.trim() || null,
       facilities: facilitiesList.length ? JSON.stringify(facilitiesList) : null,
       building_manager: building_manager?.trim() || null,
@@ -444,41 +641,44 @@ function validatePropertyBody(body) {
 app.post('/api/properties', requireAdmin, (req, res) => {
   const { error, values } = validatePropertyBody(req.body);
   if (error) return res.status(400).json({ error });
+  let buildingValues = null;
+  if (STRATA_FIELD_TYPES.includes(values.type)) {
+    const bv = validateBuildingFields(req.body.building);
+    if (bv.error) return res.status(400).json({ error: bv.error });
+    buildingValues = bv.values;
+  }
+  const buildingId = resolveBuildingLink(values.type, values.address, values.suburb, buildingValues, null);
   const result = db.prepare(`
-    INSERT INTO properties (
-      name, suburb, type, address, year_built, built_by, managed_by, manager,
-      manager_email, manager_phone, number_of_units, unit_number, layout, aspect, strata_plan_no, facilities,
-      building_manager, building_manager_email, building_manager_phone
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO properties (suburb, type, address, year_built, built_by, unit_number, layout, aspect, building_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
-    values.managed_by, values.manager, values.manager_email, values.manager_phone,
-    values.number_of_units, values.unit_number, values.layout, values.aspect, values.strata_plan_no, values.facilities,
-    values.building_manager, values.building_manager_email, values.building_manager_phone
+    values.suburb, values.type, values.address, values.year_built, values.built_by,
+    values.unit_number, values.layout, values.aspect, buildingId
   );
   res.status(201).json(getPropertyWithSales(result.lastInsertRowid));
 });
 
 // Update property
 app.put('/api/properties/:id', requireAdmin, (req, res) => {
-  const existing = db.prepare('SELECT id FROM properties WHERE id = ?').get(req.params.id);
+  const existing = db.prepare('SELECT id, building_id FROM properties WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   const { error, values } = validatePropertyBody(req.body);
   if (error) return res.status(400).json({ error });
+  let buildingValues = null;
+  if (STRATA_FIELD_TYPES.includes(values.type)) {
+    const bv = validateBuildingFields(req.body.building);
+    if (bv.error) return res.status(400).json({ error: bv.error });
+    buildingValues = bv.values;
+  }
+  const buildingId = resolveBuildingLink(values.type, values.address, values.suburb, buildingValues, existing.building_id);
   db.prepare(`
     UPDATE properties
-    SET name = ?, suburb = ?, type = ?, address = ?, year_built = ?, built_by = ?, managed_by = ?, manager = ?,
-        manager_email = ?, manager_phone = ?, number_of_units = ?, unit_number = ?, layout = ?, aspect = ?,
-        strata_plan_no = ?, facilities = ?, building_manager = ?, building_manager_email = ?,
-        building_manager_phone = ?, updated_at = datetime('now')
+    SET suburb = ?, type = ?, address = ?, year_built = ?, built_by = ?, unit_number = ?, layout = ?, aspect = ?,
+        building_id = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
-    values.name, values.suburb, values.type, values.address, values.year_built, values.built_by,
-    values.managed_by, values.manager, values.manager_email, values.manager_phone,
-    values.number_of_units, values.unit_number, values.layout, values.aspect, values.strata_plan_no,
-    values.facilities, values.building_manager, values.building_manager_email, values.building_manager_phone,
-    req.params.id
+    values.suburb, values.type, values.address, values.year_built, values.built_by,
+    values.unit_number, values.layout, values.aspect, buildingId, req.params.id
   );
   res.json(getPropertyWithSales(req.params.id));
 });

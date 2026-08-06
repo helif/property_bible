@@ -227,17 +227,28 @@
     });
   }
 
+  function lockBuildingKeyFields(form) {
+    form.querySelector('#f-address').readOnly = true;
+    form.querySelector('#f-suburb').readOnly = true;
+    form.querySelector('#f-strata-plan-no').readOnly = true;
+  }
+
   // Watches address/suburb/strata plan no while the user types, and — if they match an existing
   // building (a different one than the property is already linked to) — offers to auto-fill the
   // building fields from it. This is a client-side convenience only: the server always re-resolves the
   // actual building link from these same three fields at save time, regardless of Confirm/Dismiss here.
-  function wireBuildingLookup(form, currentBuildingId) {
+  // lockKeyInitially locks address/suburb/strata plan no from the start — used when this property
+  // already shares its building with other properties, so editing the key here can't silently move
+  // just this one unit onto (or off) a shared building out from under its siblings.
+  function wireBuildingLookup(form, currentBuildingId, lockKeyInitially) {
     const banner = form.querySelector('#building-match-banner');
     const textEl = banner.querySelector('.building-match-text');
     const addressEl = form.querySelector('#f-address');
     const suburbEl = form.querySelector('#f-suburb');
     const strataPlanEl = form.querySelector('#f-strata-plan-no');
     let dismissedKey = null;
+
+    if (lockKeyInitially) lockBuildingKeyFields(form);
 
     const runLookup = debounce(async () => {
       const type = form.querySelector('#f-type').value;
@@ -272,6 +283,9 @@
     banner.querySelector('#building-match-confirm').addEventListener('click', () => {
       const building = JSON.parse(banner.dataset.building || '{}');
       fillBuildingFields(form, building);
+      // Lock the matching key so it can't drift from the building it was just confirmed against —
+      // editing any of these three afterwards could silently point the property at a different building.
+      lockBuildingKeyFields(form);
       banner.hidden = true;
       showToast('Building details filled in — review and save');
     });
@@ -398,7 +412,8 @@
     const editForm = document.getElementById('property-form');
     applyStrataFieldVisibility(editForm);
     editForm.querySelector('#f-type').addEventListener('change', () => applyStrataFieldVisibility(editForm));
-    wireBuildingLookup(editForm, p.building?.id ?? null);
+    const buildingShared = (p.building?.unit_count ?? 0) > 1;
+    wireBuildingLookup(editForm, p.building?.id ?? null, buildingShared);
     editForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = readPropertyForm(e.target);

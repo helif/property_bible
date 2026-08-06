@@ -419,7 +419,12 @@ function parseFacilities(json) {
 function getBuilding(id) {
   if (!id) return null;
   const row = db.prepare('SELECT * FROM buildings WHERE id = ?').get(id);
-  return row ? { ...row, facilities: parseFacilities(row.facilities) } : null;
+  if (!row) return null;
+  // unit_count tells the client whether this building is shared by more than one property — if so,
+  // the property form should lock the address/suburb/strata plan fields so editing one unit can't
+  // silently detach it from (or corrupt the key of) the building its siblings still rely on.
+  const { count } = db.prepare('SELECT COUNT(*) AS count FROM properties WHERE building_id = ?').get(id);
+  return { ...row, facilities: parseFacilities(row.facilities), unit_count: count };
 }
 
 function normKey(s) {

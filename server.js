@@ -94,8 +94,10 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_buildings_key
-    ON buildings(address COLLATE NOCASE, suburb COLLATE NOCASE, strata_plan_no COLLATE NOCASE)
+  DROP INDEX IF EXISTS idx_buildings_key;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_buildings_spn
+    ON buildings(strata_plan_no COLLATE NOCASE)
     WHERE strata_plan_no IS NOT NULL AND strata_plan_no <> '';
 `);
 
@@ -440,24 +442,39 @@ function normKey(s) {
   return (s || '').toString().trim().toLowerCase();
 }
 
-// Buildings are only matched/deduped when a strata plan number is present — it's the one field that
-// reliably identifies a specific building. Without it, a building is always private to its property
-// (see resolveBuildingLink) and is never found here.
+// Buildings are matched by two independent, alternative keys, tried in this precedence:
+//   1. strata_plan_no alone, when supplied — it reliably identifies a specific building regardless of
+//      how its address/suburb happen to be typed, so when present it is used on its own (address/suburb
+//      are NOT also checked).
+//   2. address + suburb together, when strata_plan_no is blank — both must be non-blank to attempt a
+//      match. Not enforced as a DB-level unique key (a single address can legitimately hold multiple
+//      strata plans/buildings), so this is a best-effort application-level lookup only.
 function findBuildingByKey(address, suburb, strataPlanNo) {
   const spn = normKey(strataPlanNo);
-  if (!spn) return null;
+  if (spn) {
+    return db.prepare(`
+      SELECT * FROM buildings WHERE strata_plan_no COLLATE NOCASE = ?
+    `).get((strataPlanNo || '').trim()) || null;
+  }
+  if (!normKey(address) || !normKey(suburb)) return null;
   return db.prepare(`
     SELECT * FROM buildings
-    WHERE address COLLATE NOCASE = ? AND COALESCE(suburb, '') COLLATE NOCASE = ? AND strata_plan_no COLLATE NOCASE = ?
-  `).get((address || '').trim(), (suburb || '').trim(), (strataPlanNo || '').trim()) || null;
+    WHERE address COLLATE NOCASE = ? AND COALESCE(suburb, '') COLLATE NOCASE = ?
+  `).get((address || '').trim(), (suburb || '').trim()) || null;
 }
 
 // Resolves (creates/reuses/updates) the building a property should link to. The server never trusts a
-// client-supplied building_id — this always re-derives the link from (address, suburb, strata_plan_no)
-// so the result is consistent regardless of what the client's lookup/confirm UX did or didn't do.
+// client-supplied building_id — this always re-derives the link via findBuildingByKey's SPN-else-
+// address+suburb precedence, so the result is consistent regardless of what the client's lookup/confirm
+// UX did or didn't do.
 // currentBuildingId is the property's building_id before this save (null for a new property, or one that
-// never had a building) — passing it lets an edit with a blank strata_plan_no keep updating its own
-// private building row instead of creating a new orphaned one on every save.
+// never had a building) — passing it lets an edit that doesn't match any existing building keep updating
+// its own previous building row instead of creating a new orphaned one on every save.
+//
+// Known accepted risk: strata_plan_no is not locked read-only on the client even when a property's
+// building is shared (see lockBuildingKeyFields in manage.js), so editing it here on a shared building's
+// property updates that same shared row in place (via the no-match branch below) — silently renaming the
+// shared building's SPN for every sibling property too. This is intentional, not a bug to guard against.
 function resolveBuildingLink(type, address, suburb, values, currentBuildingId) {
   if (!STRATA_FIELD_TYPES.includes(type)) return null;
 
@@ -472,16 +489,21 @@ function resolveBuildingLink(type, address, suburb, values, currentBuildingId) {
     values.building_manager_email, values.building_manager_phone, values.facilities
   ).lastInsertRowid;
 
-  if (!values.strata_plan_no) {
+  const existing = findBuildingByKey(address, suburb, values.strata_plan_no);
+
+  if (!existing) {
+    // No match under either key — keep updating this property's own previous building row across edits
+    // instead of orphaning a new one every save. Applies whenever there's no match at all (blank SPN,
+    // blank address/suburb, or a non-blank key that simply doesn't match anything yet).
     if (currentBuildingId) {
       db.prepare(`
-        UPDATE buildings SET name = ?, address = ?, suburb = ?, strata_plan_no = NULL, number_of_units = ?,
+        UPDATE buildings SET name = ?, address = ?, suburb = ?, strata_plan_no = ?, number_of_units = ?,
           managed_by = ?, manager = ?, manager_email = ?, manager_phone = ?, building_manager = ?,
           building_manager_email = ?, building_manager_phone = ?, facilities = ?, updated_at = datetime('now')
         WHERE id = ?
       `).run(
-        values.name, address, suburb, values.number_of_units, values.managed_by, values.manager,
-        values.manager_email, values.manager_phone, values.building_manager,
+        values.name, address, suburb, values.strata_plan_no, values.number_of_units, values.managed_by,
+        values.manager, values.manager_email, values.manager_phone, values.building_manager,
         values.building_manager_email, values.building_manager_phone, values.facilities, currentBuildingId
       );
       return currentBuildingId;
@@ -489,11 +511,10 @@ function resolveBuildingLink(type, address, suburb, values, currentBuildingId) {
     return insertNew();
   }
 
-  const existing = findBuildingByKey(address, suburb, values.strata_plan_no);
-  if (!existing) return insertNew();
-
-  // Shared building found by key — merge-update. A blank submitted field never overwrites the shared
-  // building's existing value, so one unit's edit can't wipe data still relevant to sibling units.
+  // Shared building found by key (SPN, or address+suburb) — merge-update. A blank submitted field never
+  // overwrites the shared building's existing value, so one unit's edit can't wipe data still relevant to
+  // sibling units. address/suburb/strata_plan_no are identity fields and are always written directly from
+  // the submitted values (not merge-guarded).
   const merged = {
     name: values.name ?? existing.name,
     number_of_units: values.number_of_units !== null ? values.number_of_units : existing.number_of_units,
@@ -535,12 +556,14 @@ app.get('/api/properties', (req, res) => {
   res.json(properties.map(serializeProperty));
 });
 
-// Look up an existing building by address + suburb + strata plan no, for the "this building already
-// exists — use its details?" prompt on the property form. Requires address and strata_plan_no (suburb
-// optional) since a strata plan no is what makes the match reliable — see findBuildingByKey.
+// Look up an existing building for the "this building already exists — use its details?" prompt on the
+// property form. Mirrors findBuildingByKey's precedence: strata_plan_no alone is sufficient when
+// present; otherwise both address and suburb are required.
 app.get('/api/buildings/lookup', (req, res) => {
   const { address, suburb, strata_plan_no } = req.query;
-  if (!normKey(address) || !normKey(strata_plan_no)) {
+  const hasSpn = !!normKey(strata_plan_no);
+  const hasAddressSuburb = !!normKey(address) && !!normKey(suburb);
+  if (!hasSpn && !hasAddressSuburb) {
     return res.status(404).json({ error: 'No matching building found' });
   }
   const building = findBuildingByKey(address, suburb, strata_plan_no);

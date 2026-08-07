@@ -1,4 +1,4 @@
-# Cathy's Property Bible
+# CT Property Bible
 
 A self-hosted property management web app: track addresses, owners, tenants, building managers, and sales history, with full-text search and role-based access control. Built as a small Node.js/Express server with SQLite storage and a vanilla JS frontend — no build step, no external services.
 

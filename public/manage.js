@@ -230,16 +230,18 @@
   function lockBuildingKeyFields(form) {
     form.querySelector('#f-address').readOnly = true;
     form.querySelector('#f-suburb').readOnly = true;
-    form.querySelector('#f-strata-plan-no').readOnly = true;
   }
 
   // Watches address/suburb/strata plan no while the user types, and — if they match an existing
   // building (a different one than the property is already linked to) — offers to auto-fill the
-  // building fields from it. This is a client-side convenience only: the server always re-resolves the
-  // actual building link from these same three fields at save time, regardless of Confirm/Dismiss here.
-  // lockKeyInitially locks address/suburb/strata plan no from the start — used when this property
-  // already shares its building with other properties, so editing the key here can't silently move
-  // just this one unit onto (or off) a shared building out from under its siblings.
+  // building fields from it. Matches as soon as strata plan no is filled, OR as soon as both address
+  // and suburb are filled — mirroring findBuildingByKey's SPN-else-address+suburb precedence server
+  // side. This is a client-side convenience only: the server always re-resolves the actual building
+  // link via that same precedence at save time, regardless of Confirm/Dismiss here.
+  // lockKeyInitially locks address/suburb (not strata plan no — see lockBuildingKeyFields) from the
+  // start — used when this property already shares its building with other properties, so editing the
+  // address/suburb key here can't silently move just this one unit onto (or off) a shared building out
+  // from under its siblings. Strata plan no is intentionally left editable even then.
   function wireBuildingLookup(form, currentBuildingId, lockKeyInitially) {
     const banner = form.querySelector('#building-match-banner');
     const textEl = banner.querySelector('.building-match-text');
@@ -256,7 +258,8 @@
       const suburb = suburbEl.value.trim();
       const strataPlanNo = strataPlanEl.value.trim();
       const key = `${address.toLowerCase()}|${suburb.toLowerCase()}|${strataPlanNo.toLowerCase()}`;
-      if (!showsStrataFields(type) || !address || !suburb || !strataPlanNo || key === dismissedKey) {
+      const canMatch = strataPlanNo || (address && suburb);
+      if (!showsStrataFields(type) || !canMatch || key === dismissedKey) {
         banner.hidden = true;
         return;
       }
@@ -271,7 +274,8 @@
         banner.hidden = true;
         return;
       }
-      textEl.textContent = `A building already exists at this address — "${building.name || 'Unnamed'}", Strata Plan ${building.strata_plan_no}. Use its details? (Saving will link to it either way.)`;
+      const matchedBy = strataPlanNo ? `Strata Plan ${building.strata_plan_no}` : 'this address & suburb';
+      textEl.textContent = `A building already exists — "${building.name || 'Unnamed'}", matched by ${matchedBy}. Use its details? (Saving will link to it either way.)`;
       banner.dataset.building = JSON.stringify(building);
       banner.dataset.key = key;
       banner.hidden = false;
@@ -283,8 +287,8 @@
     banner.querySelector('#building-match-confirm').addEventListener('click', () => {
       const building = JSON.parse(banner.dataset.building || '{}');
       fillBuildingFields(form, building);
-      // Lock the matching key so it can't drift from the building it was just confirmed against —
-      // editing any of these three afterwards could silently point the property at a different building.
+      // Lock address/suburb so they can't drift from the building just confirmed against — strata plan
+      // no is intentionally left editable (see lockBuildingKeyFields).
       lockBuildingKeyFields(form);
       banner.hidden = true;
       showToast('Building details filled in — review and save');
